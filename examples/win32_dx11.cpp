@@ -56,7 +56,8 @@ int main(int argc,char** argv)
 {
     try
     {
-        const bool snapshot=argc > 2 && std::string(argv[1]) == "--snapshot";
+        const bool list_snapshot=argc > 2 && std::string(argv[1]) == "--snapshot-list";
+        const bool snapshot=list_snapshot || (argc > 2 && std::string(argv[1]) == "--snapshot");
         WNDCLASSW wc{}; wc.lpfnWndProc=window_proc; wc.hInstance=GetModuleHandleW(nullptr); wc.lpszClassName=L"AstraDemo";
         RegisterClassW(&wc);
         HWND window=CreateWindowW(wc.lpszClassName,L"Astra - standalone demo",WS_OVERLAPPEDWINDOW,
@@ -90,7 +91,8 @@ int main(int argc,char** argv)
         astra::navigation<int> nav; nav.add_tab(0); nav.add_tab(1); nav.add_tab(2);
         bool open=true, enabled=true, notifications=true;
         double strength=65;
-        int difficulty=1, theme=4, layout=1, actions=0;
+        int difficulty=1, theme=4, layout=list_snapshot ? 0 : 1, actions=0;
+        std::size_t selected_option=0;
         int frame=0;
         while (open)
         {
@@ -108,6 +110,7 @@ int main(int argc,char** argv)
             astra::page page;
             page.tabs={"Overview","Tools","Settings"}; page.selected_tab=nav.selected_tab();
             page.id=std::to_string(nav.path().back());
+            page.selected_option=selected_option;
             page.title=nav.path().back()==3 ? "Advanced options" : page.tabs[nav.selected_tab()];
             page.breadcrumbs={page.tabs[nav.selected_tab()]};
             if (nav.path().size()>1) page.breadcrumbs.push_back("Advanced");
@@ -128,7 +131,7 @@ int main(int argc,char** argv)
                 toggle.activate=[&]{enabled=!enabled;};
                 auto& slider=add("strength","Strength",astra::control_kind::number);
                 slider.value=strength; slider.minimum=0; slider.maximum=100; slider.integral=true;
-                slider.description="Drag the slider or Ctrl+click to enter an exact value.";
+                slider.description=layout==0 ? "Click the arrows to decrease or increase the value." : "Drag the slider or Ctrl+click to enter an exact value.";
                 slider.set_value=[&](double v){strength=v;};
                 auto& choice=add("difficulty","Profile",astra::control_kind::choice);
                 choice.choices={"Relaxed","Balanced","Advanced"}; choice.choice=difficulty; choice.set_choice=[&](int n){difficulty=n;};
@@ -149,9 +152,14 @@ int main(int argc,char** argv)
             }
             else
             {
-                menu.draw_list(page,astra::preset_theme(theme),{});
-                if (ImGui::Begin("Demo controls")) { if (ImGui::Button("Return to Window")) layout=1; }
-                ImGui::End();
+                const auto event=menu.draw_list(page,astra::preset_theme(theme),{});
+                if (event.kind==astra::event_kind::tab) { nav.select_tab(event.index); selected_option=0; }
+                if (event.kind==astra::event_kind::back) nav.back();
+                if (event.kind==astra::event_kind::option) selected_option=event.index;
+                if (!snapshot) {
+                    if (ImGui::Begin("Demo controls")) { if (ImGui::Button("Return to Window")) layout=1; }
+                    ImGui::End();
+                }
             }
             ImGui::Render();
             const float clear[]{0.025f,0.032f,0.045f,1};

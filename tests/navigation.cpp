@@ -75,6 +75,9 @@ struct ui_fixture
     astra::menu menu;
     astra::page page;
     bool open = true;
+    bool list_mode = false;
+    bool overlay = false;
+    astra::list_style list;
     ImVec2 item_min{}, item_max{};
     astra::event event;
     ui_fixture()
@@ -98,7 +101,17 @@ struct ui_fixture
     {
         ImGui::NewFrame();
         ImGui::SetNextWindowPos({40,40},ImGuiCond_Always);
-        event = menu.draw_window("Fixture",page,open,astra::preset_theme(0));
+        event = list_mode ? menu.draw_list(page,astra::preset_theme(0),list)
+                         : menu.draw_window("Fixture",page,open,astra::preset_theme(0));
+        if (list_mode && event.kind == astra::event_kind::option) page.selected_option = event.index;
+        if (list_mode && event.kind == astra::event_kind::tab) page.selected_tab = event.index;
+        if (overlay) {
+            ImGui::SetNextWindowPos(list.position);
+            ImGui::SetNextWindowSize({list.width,400});
+            ImGui::Begin("Overlay",nullptr,ImGuiWindowFlags_NoDecoration);
+            ImGui::TextUnformatted("Overlay");
+            ImGui::End();
+        }
         ImGui::Render();
     }
     void click(ImVec2 p)
@@ -204,8 +217,132 @@ static void interaction_tests()
     ImGui::Render();
     require(ImGui::GetDrawData()->TotalVtxCount > 0, "list selection clamps");
 }
+static void list_mouse_tests()
+{
+    ui_fixture f;
+    f.list_mode = true;
+    f.list.position = {83,67};
+    f.list.width = 420;
+    f.list.row_height = 36;
+    f.list.rows = 3;
+    f.page.tabs = {"One","Two","Three","Four","Five"};
+    const float top = 67 + 60 + 45;
+    int actions = 0;
+    bool checked = false;
+    double value = 0;
+    int choice = 0;
+    astra::control action;
+    action.id = "action"; action.label = "Run"; action.activate = [&] { ++actions; };
+    astra::control slider;
+    slider.id = "slider"; slider.label = "Limit"; slider.kind = astra::control_kind::toggle_number;
+    slider.minimum = 0; slider.maximum = 100; slider.integral = true;
+    slider.activate = [&] { checked = !checked; };
+    slider.set_value = [&](double v) { value = v; f.page.controls[1].value = v; };
+    astra::control number;
+    number.id = "number"; number.label = "Amount"; number.kind = astra::control_kind::number;
+    number.minimum = 0; number.maximum = 100; number.step = 5;
+    number.set_value = [&](double v) { value = v; f.page.controls[2].value = v; };
+    f.page.controls = {action, slider, number};
+    f.frame(); f.frame();
+    f.click({100,top + 18});
+    require(actions == 1, "list action fires once");
+    auto& io = ImGui::GetIO();
+    const float right = 83 + 420 - 58, left = right - 126;
+    io.AddMousePosEvent((left + right) * .5f, top + 54); f.frame();
+    io.AddMouseButtonEvent(0,true); f.frame();
+    require(value == 50 && !checked, "raw slider midpoint does not toggle");
+    io.AddMousePosEvent(right + 100, top + 200); f.frame();
+    require(value == 100 && !checked, "slider drag outside captures and clamps maximum");
+    io.AddMousePosEvent(left - 100, top + 200); f.frame();
+    require(value == 0, "slider drag clamps minimum");
+    io.AddMouseButtonEvent(0,false); f.frame();
+    f.click({83 + 420 - 19,top + 54});
+    require(checked, "checkbox remains separate from slider");
+    value = 0;
+    f.click({83 + 420 - 17,top + 90});
+    require(value == 5, "number next arrow uses step");
+    f.page.controls[2].value = 5;
+    const auto shown = std::string("< 5.00 >");
+    f.click({83 + 420 - 14 - ImGui::CalcTextSize(shown.c_str()).x + 2,top + 90});
+    require(value == 0, "number previous arrow uses drawn coordinates");
+    auto& c = f.page.controls[2];
+    c.kind = astra::control_kind::choice; c.choices = {"Alpha","Beta"}; c.choice = 0;
+    c.set_choice = [&](int next) { choice = next; };
+    f.frame(); f.frame();
+    f.click({83 + 420 - 17,top + 90});
+    require(choice == 1, "choice next arrow changes value");
+    c.choice = 1;
+    f.click({83 + 420 - 17,top + 90});
+    require(choice == 0, "choice cycles at end");
+    f.page.controls.clear();
+    for (int i = 0; i < 12; ++i) {
+        auto item = action; item.id = std::to_string(i); f.page.controls.push_back(item);
+    }
+    f.page.selected_option = 0;
+    f.frame(); f.frame();
+    io.AddMousePosEvent(100,top + 18); f.frame();
+    io.AddMouseWheelEvent(0,-5); f.frame();
+    require(f.page.selected_option == 5 && actions == 1, "wheel reveals hidden rows without activation");
+    f.click({100,top + 54});
+    require(f.event.index == 6 && actions == 2, "scrolled row maps to correct option");
+    f.click({100,top + 18});
+    require(f.event.index == 5 && actions == 3, "click preserves viewport");
+    io.AddMousePosEvent(83 + 420 + 10,top + 100); f.frame();
+    io.AddMouseButtonEvent(0,true); f.frame();
+    io.AddMousePosEvent(83 + 420 + 50,top + 200); f.frame();
+    io.AddMouseButtonEvent(0,false); f.frame();
+    f.click({100,top + 90});
+    require(f.event.index == 11 && actions == 4, "scrollbar drag reaches final option");
+    f.page.selected_option = 0;
+    f.frame(); f.frame(); f.click({100,top + 18});
+    require(f.event.index == 0, "keyboard selection brings row into view");
+    io.AddMousePosEvent(100,67 + 75); f.frame();
+    io.AddMouseWheelEvent(0,-4); f.frame();
+    require(f.page.selected_tab == 4, "wheel reaches fifth tab");
+    f.frame(); f.frame();
+    f.click({90,67 + 75});
+    require(f.page.selected_tab == 2, "animated tab hitbox matches visible tab");
+    const auto previous = f.page.selected_option;
+    io.AddMousePosEvent(900,700); f.frame();
+    io.AddMouseWheelEvent(0,-4); f.frame();
+    require(f.page.selected_option == previous && f.page.selected_tab == 2, "outside wheel leaves menu untouched");
+    f.list.rows = 1; f.list.row_height = 24;
+    f.frame(); f.frame();
+    io.AddMousePosEvent(83 + 420 + 10,top + 18); f.frame();
+    io.AddMouseButtonEvent(0,true); f.frame();
+    io.AddMousePosEvent(83 + 420 + 10,top + 30); f.frame();
+    io.AddMouseButtonEvent(0,false); f.frame();
+    require(f.page.selected_option == 11, "minimum height scrollbar remains usable");
+    f.page.breadcrumbs = {"Root","Child"};
+    io.AddMousePosEvent(100,top + 12); f.frame();
+    io.AddMouseButtonEvent(1,true); f.frame();
+    require(f.event.kind == astra::event_kind::back, "right click returns from submenu");
+    io.AddMouseButtonEvent(1,false); f.frame();
+    f.page.breadcrumbs = {"Root"};
+    io.AddMouseButtonEvent(1,true); f.frame();
+    require(f.event.kind == astra::event_kind::none, "right click at root does nothing");
+    io.AddMouseButtonEvent(1,false); f.frame();
+    const int before = actions;
+    f.list.mouse_enabled = false;
+    f.frame(); f.frame(); f.click({100,top + 12});
+    require(actions == before && f.event.kind == astra::event_kind::none, "disabled mouse cannot activate rows");
+    f.list.mouse_enabled = true;
+    f.overlay = true;
+    f.frame(); f.frame(); f.click({100,top + 12});
+    require(actions == before, "covering window blocks raw list clicks");
+    f.overlay = false;
+    f.list.banner = 1; f.list.banner_height = 130;
+    f.list.position = {170,100}; f.list.row_height = 48; f.list.width = 300; f.list.rows = 3;
+    f.page.id = "new-page"; f.page.tabs.clear(); f.page.controls = {action}; f.page.selected_option = 99;
+    f.frame(); f.frame();
+    f.click({190,100 + 130 + 24});
+    require(actions == before + 1 && f.event.index == 0, "banner and resized list use matching screen coordinates");
+    f.page.controls.clear(); f.frame();
+    io.AddMouseWheelEvent(0,-20); f.frame();
+    require(f.event.kind == astra::event_kind::none, "empty list safely ignores wheel");
+}
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); interaction_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); interaction_tests(); list_mouse_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

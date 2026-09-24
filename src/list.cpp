@@ -1,14 +1,62 @@
 #include <astra/menu.hpp>
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 namespace astra
 {
 	event menu::draw_list(const page& model, const theme& target, const list_style& settings)
 	{
 		const auto colors = animate_theme(target);
+		event result;
+		std::function<void()> pending;
 		auto* draw = ImGui::GetBackgroundDrawList();
 		const float x = settings.position.x, width = std::max(200.f, settings.width), rh = std::max(24.f, settings.row_height);
 		float y = settings.position.y;
+		const auto total = model.controls.size();
+		const auto visible = std::min(total, (std::size_t)std::max(1, settings.rows));
+		const float input_height = (settings.banner ? settings.banner_height : 60.f) +
+			(model.tabs.empty() ? 0.f : 45.f) + rh * float(visible ? visible : 1);
+		const auto input_id = "##astra_list_input_" + model.id;
+		ImGui::SetNextWindowPos(settings.position);
+		ImGui::SetNextWindowSize({width + 24.f, input_height});
+		ImGui::SetNextWindowBgAlpha(0.f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+		const bool input_visible = ImGui::Begin(input_id.c_str(), nullptr,
+			ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+			ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove |
+			ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar |
+			ImGuiWindowFlags_NoBringToFrontOnFocus |
+			(settings.mouse_enabled ? 0 : ImGuiWindowFlags_NoMouseInputs));
+		ImGui::PopStyleVar(2);
+		auto& io = ImGui::GetIO();
+		auto hitbox = [&](const std::string& id, ImVec2 position, ImVec2 size, auto&& clicked) {
+			if (!input_visible || !settings.mouse_enabled || size.x <= 0 || size.y <= 0)
+				return false;
+			ImGui::SetCursorScreenPos({x + position.x, settings.position.y + position.y});
+			ImGui::PushID(id.c_str());
+			if (ImGui::InvisibleButton("##hitbox", size) && result.kind == event_kind::none)
+				clicked();
+			const bool active = ImGui::IsItemActive();
+			if (ImGui::IsItemHovered() || active)
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+			ImGui::PopID();
+			return active;
+		};
+		auto hovered = [&](ImVec2 lo, ImVec2 hi) {
+			return input_visible && settings.mouse_enabled && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(lo, hi);
+		};
+		if (model.breadcrumbs.size() > 1 && hovered(settings.position, {x + width + 24, settings.position.y + input_height}) && ImGui::IsMouseClicked(1))
+			result = {event_kind::back};
+		if (list_page_ != model.id)
+		{
+			list_page_ = model.id;
+			list_start_ = 0;
+			list_wheel_ = tab_wheel_ = list_scroll_position_ = 0.f;
+			selected_row_y_ = 0.f;
+		}
 		auto color = [](ImVec4 c) {
 			return pack_color(c);
 		};
@@ -36,6 +84,15 @@ namespace astra
 		const auto tab_count = model.tabs.size();
 		if (tab_count)
 		{
+			if (hovered({x, y}, {x + width, y + 45}) && !ImGui::IsMouseDown(0))
+			{
+				tab_wheel_ -= io.MouseWheel + io.MouseWheelH;
+				const int steps = static_cast<int>(tab_wheel_);
+				tab_wheel_ -= float(steps);
+				if (steps && result.kind == event_kind::none)
+					result = {event_kind::tab, static_cast<std::size_t>(std::clamp(
+						double(model.selected_tab) + steps, 0.0, double(tab_count - 1)))};
+			}
 			const auto vis = std::min<std::size_t>(3, tab_count);
 			if (tab_count > vis)
 			{
@@ -55,6 +112,9 @@ namespace astra
 				auto i = tab_start_ + s;
 				bool a = i == model.selected_tab;
 				tab_widths_[s] += ((a ? selw : norm) - tab_widths_[s]) * .15f;
+				hitbox("tab_" + std::to_string(i), {tx - x, y - settings.position.y}, {tab_widths_[s], 45}, [&] {
+					result = {event_kind::tab, i};
+				});
 				draw->AddRectFilled({tx, y}, {tx + tab_widths_[s], y + 45}, color(a ? colors.selection : colors.field));
 				auto label = (a && !model.title.empty()) ? model.title : model.tabs[i];
 				text(label, tx + (tab_widths_[s] - ImGui::CalcTextSize(label.c_str()).x) * .5f, y + 14, color(a ? colors.selection_text : colors.text));
@@ -63,12 +123,56 @@ namespace astra
 			//draw->AddLine({x, y + 64}, {x + width, y + 64}, color(colors.accent), 2);
 			y += 45;
 		}
-		const auto total = model.controls.size(), selected = total ? std::min(model.selected_option, total - 1) : 0, visible = std::min(total, (std::size_t)std::max(1, settings.rows));
+		auto selected = total ? std::min(model.selected_option, total - 1) : 0;
 		const std::string count = std::to_string(total ? selected + 1 : 0) + " / " + std::to_string(total);
 		//row(model.title, count, false, 45);
 		const float top = y, height = rh * float(visible ? visible : 1);
 		draw->AddRectFilled({x, top}, {x + width, top + height}, color(colors.panel));
-		const auto start = selected >= visible && visible ? selected - visible + 1 : 0;
+		const auto max_start = total - visible;
+		list_start_ = std::min(list_start_, max_start);
+		if (total)
+		{
+			if (selected < list_start_) list_start_ = selected;
+			if (selected >= list_start_ + visible) list_start_ = selected - visible + 1;
+		}
+		auto scroll_to = [&](std::size_t next) {
+			list_start_ = std::min(next, max_start);
+			if (total)
+			{
+				const auto next_selected = std::clamp(selected, list_start_, list_start_ + visible - 1);
+				if (next_selected != selected && result.kind == event_kind::none)
+					result = {event_kind::option, next_selected};
+				selected = next_selected;
+			}
+		};
+		if (hovered({x, top}, {x + width + 24, top + height}) && !ImGui::IsMouseDown(0))
+		{
+			list_wheel_ -= io.MouseWheel;
+			const int steps = static_cast<int>(list_wheel_);
+			list_wheel_ -= float(steps);
+			if (steps) scroll_to(static_cast<std::size_t>(std::clamp(double(list_start_) + steps, 0.0, double(max_start))));
+		}
+		if (max_start)
+		{
+			const float tt = top + 4, tb = top + height - 4;
+			const float th = std::min(tb - tt, std::max(18.f, (tb - tt) * float(visible) / float(total)));
+			const float travel = tb - tt - th;
+			list_scroll_position_ += (float(list_start_) / float(max_start) - list_scroll_position_) * (1 - std::exp(-14 * io.DeltaTime));
+			float py = tt + travel * std::clamp(list_scroll_position_, 0.f, 1.f);
+			const bool dragging = hitbox("scrollbar", {width + 4, tt - settings.position.y}, {16, tb - tt}, [] {});
+			if (dragging)
+			{
+				if (ImGui::IsItemActivated())
+					list_scroll_grab_ = io.MousePos.y >= py && io.MousePos.y < py + th ? io.MousePos.y - py : th * .5f;
+				const float p = travel > 0 ? std::clamp((io.MousePos.y - tt - list_scroll_grab_) / travel, 0.f, 1.f) : std::clamp((io.MousePos.y - tt) / (tb - tt), 0.f, 1.f);
+				scroll_to(static_cast<std::size_t>(std::round(p * float(max_start))));
+				list_scroll_position_ = float(list_start_) / float(max_start);
+				py = tt + travel * list_scroll_position_;
+			}
+			draw->AddRectFilled({x + width + 8, tt}, {x + width + 12, tb}, color(colors.field));
+			draw->AddRectFilled({x + width + 8, py}, {x + width + 12, py + th}, color(colors.accent));
+		}
+		const auto start = list_start_;
 		if (total)
 		{
 			float target_y = top + rh * float(selected - start);
@@ -81,11 +185,70 @@ namespace astra
 		{
 			const auto& c = model.controls[i];
 			const bool active = i == selected, toggle = c.kind == control_kind::toggle || c.kind == control_kind::toggle_number, slider = c.kind == control_kind::toggle_number;
+			const std::string row_id = "option_" + (c.id.empty() ? std::to_string(i) : c.id);
+			auto select = [&] { result = {event_kind::option, i}; };
+			auto activate = [&] {
+				select();
+				pending = c.activate;
+				if (!pending && c.kind == control_kind::toggle && c.set_value)
+					pending = [fn = c.set_value, checked = c.checked] { fn(checked ? 0.0 : 1.0); };
+			};
 			std::string right;
 			if (c.kind == control_kind::submenu)
 				right = ">>";
 			else if (c.kind == control_kind::number || c.kind == control_kind::toggle_number || c.kind == control_kind::choice)
 				right = c.value_text;
+			if (right.empty() && c.kind == control_kind::choice && c.choice >= 0 && c.choice < static_cast<int>(c.choices.size()))
+				right = c.choices[c.choice];
+			if (right.empty() && c.kind == control_kind::number)
+			{
+				std::ostringstream value;
+				value << std::fixed << std::setprecision(c.integral ? 0 : std::clamp(c.precision, 0, 12)) << c.value;
+				right = value.str();
+			}
+			const float local_y = y - settings.position.y;
+			const float slider_width = std::clamp(width * 0.30f, 110.f, 180.f);
+			const float r = x + width - 58.f, l = r - slider_width;
+			if (slider)
+			{
+				hitbox(row_id + "/label", {0, local_y}, {l - x - 6, rh}, activate);
+				hitbox(row_id + "/toggle", {r - x + 6, local_y}, {x + width - r - 6, rh}, activate);
+				const bool dragging = hitbox(row_id + "/slider", {l - x - 6, local_y}, {r - l + 12, rh}, [] {});
+				if (dragging && c.set_value && result.kind == event_kind::none)
+				{
+					const double mn = std::min(c.minimum, c.maximum), mx = std::max(c.minimum, c.maximum);
+					const double q = std::clamp(double((io.MousePos.x - l) / (r - l)), 0.0, 1.0);
+					const double value = bounded_value(mn + (mx - mn) * q, mn, mx, c.integral);
+					select();
+					if (value != c.value) pending = [fn = c.set_value, value] { fn(value); };
+				}
+			}
+			else if (c.kind == control_kind::number || c.kind == control_kind::choice)
+			{
+				const auto shown = std::string("< ") + right + " >";
+				const float right_edge = width - 14;
+				const float left_edge = std::max(0.f, right_edge - ImGui::CalcTextSize(shown.c_str()).x);
+				const float arrow = std::min(24.f, (right_edge - left_edge) * .5f);
+				auto step = [&](int direction) {
+					select();
+					if (c.kind == control_kind::number && c.set_value)
+					{
+						const double value = bounded_value(c.value + direction * c.step, c.minimum, c.maximum, c.integral);
+						pending = [fn = c.set_value, value] { fn(value); };
+					}
+					else if (c.set_choice && !c.choices.empty())
+					{
+						const int count = static_cast<int>(c.choices.size());
+						const int value = (std::clamp(c.choice, 0, count - 1) + direction + count) % count;
+						pending = [fn = c.set_choice, value] { fn(value); };
+					}
+				};
+				hitbox(row_id + "/label", {0, local_y}, {left_edge, rh}, activate);
+				hitbox(row_id + "/previous", {left_edge, local_y}, {arrow, rh}, [&] { step(-1); });
+				hitbox(row_id + "/value", {left_edge + arrow, local_y}, {right_edge - left_edge - 2 * arrow, rh}, activate);
+				hitbox(row_id + "/next", {right_edge - arrow, local_y}, {width - right_edge + arrow, rh}, [&] { step(1); });
+			}
+			else hitbox(row_id, {0, local_y}, {width, rh}, activate);
 			auto ink = color(active ? colors.selection_text : colors.text);
 			text(c.label, x + 14, y + (rh - ImGui::GetFontSize()) * .5f, ink);
 			if (!right.empty() && !toggle && !slider)
@@ -105,8 +268,6 @@ namespace astra
 			}
 			if (slider)
 			{
-				const float slider_width = std::clamp(width * 0.30f, 110.f, 180.f);
-                const float r = x + width - 58.f, l = r - slider_width;
                 double mn = std::min(c.minimum, c.maximum), mx = std::max(c.minimum, c.maximum);
 				float q = mx > mn ? float(std::clamp((c.value - mn) / (mx - mn), 0.0, 1.0)) : 0, kn = l + (r - l) * q;
 				draw->AddRectFilled({l, y + rh * .5f - 2}, {r, y + rh * .5f + 2}, color(colors.muted), 2);
@@ -120,18 +281,7 @@ namespace astra
 			text("No options", x + 14, y + (rh - ImGui::GetFontSize()) * .5f, color(colors.muted));
 			y += rh;
 		}
-		if (total > visible)
-		{
-			float tt = top + 4, tb = top + height - 4, th = std::max(18.f, (tb - tt) * float(visible) / float(total)), target = float(start) / float(total - visible);
-			auto* st = ImGui::GetStateStorage();
-			auto id = ImGui::GetID(("##list_scroll_" + model.id).c_str());
-			float p = st->GetFloat(id, target);
-			p += (target - p) * (1 - std::exp(-14 * ImGui::GetIO().DeltaTime));
-			st->SetFloat(id, p);
-			float py = tt + (tb - tt - th) * std::clamp(p, 0.f, 1.f);
-			draw->AddRectFilled({x + width + 8, tt}, {x + width + 12, tb}, color(colors.field));
-			draw->AddRectFilled({x + width + 8, py}, {x + width + 12, py + th}, color(colors.accent));
-		}        if (total && !model.controls[selected].description.empty())
+		if (total && !model.controls[selected].description.empty())
         {
             const float panel_x = x + width + 28.f;
             const float panel_y = std::clamp(selected_row_y_, top, top + height - rh);
@@ -145,6 +295,9 @@ namespace astra
         y = top + height + 14.f;
         draw->AddRectFilled({x, y}, {x + width, y + 42.f}, color(colors.panel));
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {x + 14, y + 12}, color(colors.muted), settings.footer.c_str());
-		return {};
+		ImGui::End();
+		if (pending && result.kind == event_kind::option)
+			pending();
+		return result;
 	}
 }

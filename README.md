@@ -77,7 +77,11 @@ const auto event = canvas.draw(
     "My menu###stable_menu_id", page, open, astra::preset_theme(4));
 ```
 
-Call `canvas.draw(astra::layout::list, id, page, open, theme, list_style)` for the keyboard-oriented List view. Both layouts consume the same model through the shared `astra::canvas` facade. List input is routed by the host to its navigation and option bindings.
+Call `canvas.draw(astra::layout::list, id, page, open, theme, list_style)` for the raw-drawn List view. Both layouts consume the same model through the shared `astra::canvas` facade. The host routes keyboard input to navigation and option bindings.
+
+List mouse input uses transparent hitboxes aligned with the existing drawing. Click rows to activate actions/toggles; click the displayed number/choice arrows to decrement or increment; drag a toggle-number slider without changing its checkbox. Numeric arrows use `step`; slider dragging is continuous and rounds integral values. Wheel over rows scrolls the list, wheel over tabs changes tabs, and the scrollbar supports track clicks and dragging. Right-click inside a submenu to go back. Set `list_style::mouse_enabled=false` to disable mouse capture and interaction.
+
+Apply returned `option` events to `page.selected_option` and `tab`/`back` events to navigation on the next frame. Scrolling can return an option event to keep selection visible; it never invokes the option callback. Refresh control values each frame after setters run. Mouse callbacks execute after drawing ends.
 
 Window actions are deferred until the old window has finished rendering, then run once. Returned events tell the host which tab, breadcrumb, or selected option changed. The host applies navigation events to its `navigation` instance. Root Back is disabled. Revisiting an ancestor truncates the path rather than creating a cycle.
 
@@ -102,6 +106,7 @@ The demo uses DX11 WARP and sample controls; it has no game dependency. It uses 
 
 ```powershell
 ./build/astra_demo.exe --snapshot preview.bmp
+./build/astra_demo.exe --snapshot-list list-preview.bmp
 ```
 
 Regression tests exercise per-tab history, Back/root boundaries, ancestor breadcrumbs, invalid destinations, numeric bounds, actual mouse clicks on actions/toggles/sliders/dropdowns/sidebar/Back, Ctrl+click numeric text entry, style restoration, and empty List rendering.

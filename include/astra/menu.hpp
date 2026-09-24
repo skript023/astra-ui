@@ -14,6 +14,7 @@ namespace astra
 		ImTextureID banner{};
 		float banner_height = 100;
         std::string footer = "Astra | Build 1.0.0";
+        bool mouse_enabled = true;
 	};
 	// One view per menu instance. No game globals or graphics-device ownership.
 	class menu
@@ -25,6 +26,10 @@ namespace astra
 		std::vector<float> tab_widths_;
 		std::size_t tab_start_ = 0;
 		float selected_row_y_ = 0.f;
+		std::string list_page_;
+		std::size_t list_start_ = 0;
+		float list_wheel_ = 0.f, tab_wheel_ = 0.f;
+		float list_scroll_position_ = 0.f, list_scroll_grab_ = 0.f;
 		theme animate_theme(const theme& target);
 
 	public:

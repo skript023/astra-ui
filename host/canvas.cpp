@@ -14,7 +14,7 @@ namespace big
         check_for_input_impl();
         handle_input_impl();
         m_mouse_enabled = g_settings.window.layout == 1 || g_settings.window.mouse_active;
-        m_capture_game = m_opened && g_settings.window.layout == 1 &&
+        m_capture_game = m_opened && m_mouse_enabled.load() &&
             (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard);
         if (!m_opened || active_history().empty()) return;
 
@@ -88,6 +88,7 @@ namespace big
         style.banner_height = m_header_height;
         style.row_height = m_option_height;
         style.footer = "Astra | Build 1.0.0";
+        style.mouse_enabled = m_mouse_enabled.load();
         bool open = m_opened;
         astra::event event = m_astra_canvas.draw(
             g_settings.window.layout == 1 ? astra::layout::window : astra::layout::list,
