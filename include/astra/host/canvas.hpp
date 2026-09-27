@@ -8,6 +8,7 @@
 #include <astra/host/menu/tabs_menu.hpp>
 #include <astra/canvas.hpp>
 #include <astra/navigation.hpp>
+#include <unordered_set>
 
 namespace big
 {
@@ -46,6 +47,7 @@ namespace big
 		std::vector<std::unique_ptr<abstract_submenu>> m_all_tabs;
 		astra::navigation<abstract_submenu*> m_navigation;
 		astra::canvas m_astra_canvas;
+        std::unordered_set<abstract_submenu*> m_window_prepared;
 
 		static canvas& instance()
 		{
@@ -148,6 +150,8 @@ namespace big
         static Vector2 platform_resolution();
         static void platform_prepare_render();
         void tick_impl();
+        std::vector<astra::control> window_controls(abstract_submenu* sub,
+            std::vector<std::uint32_t> ancestors);
 		void game_tick();
 	public:
 		void draw_stroke_text_impl(float x, float y, Color color, std::string_view str);

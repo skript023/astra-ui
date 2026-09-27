@@ -34,9 +34,10 @@ namespace astra
 			{
 				ImGui::TextUnformatted(c.label.c_str());
 				const float value_width = ImGui::CalcTextSize(value_text).x;
-				if (ImGui::GetContentRegionAvail().x > value_width + 30)
+				const float label_width = ImGui::CalcTextSize(c.label.c_str()).x;
+				if (ImGui::GetContentRegionAvail().x > label_width + value_width + 12)
 				{
-					ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - value_width - 4);
+					ImGui::SameLine(0, ImGui::GetContentRegionAvail().x - label_width - value_width - 4);
 					ImGui::TextDisabled("%s", value_text);
 				}
 			}

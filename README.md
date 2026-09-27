@@ -2,7 +2,7 @@
 
 A standalone C++17 menu library built on Dear ImGui. Navigation, data bindings, themes, List layout, and clickable Window layout are separate modules. There are no Unity/Unreal types, game globals, process hooks, or project precompiled headers in this package.
 
-The Studio theme uses a light workspace, purple accents, rounded cards, a custom header, icon sidebar, animated pill toggles, and thin sliders. Emerald, Violet, and Ocean are dark alternatives. The host can supply any `theme` palette.
+The Studio theme uses a light workspace, purple accents, a custom header, and thin sliders. Window layout places tabs across the header and outer submenus in the sidebar, with nested settings grouped in the content area. Emerald, Violet, and Ocean are dark alternatives. The host can supply any `theme` palette.
 
 ## Modules
 
@@ -83,7 +83,13 @@ List mouse input uses transparent hitboxes aligned with the existing drawing. Cl
 
 Apply returned `option` events to `page.selected_option` and `tab`/`back` events to navigation on the next frame. Scrolling can return an option event to keep selection visible; it never invokes the option callback. Refresh control values each frame after setters run. Mouse callbacks execute after drawing ends.
 
-Window actions are deferred until the old window has finished rendering, then run once. Returned events tell the host which tab, breadcrumb, or selected option changed. The host applies navigation events to its `navigation` instance. Root Back is disabled. Revisiting an ancestor truncates the path rather than creating a cycle.
+Window actions are deferred until the old window has finished rendering, then run once. The host applies tab and legacy breadcrumb events to its `navigation` instance.
+
+For the grouped Window layout, supply the selected tab's root page each frame (one breadcrumb). Each outer `submenu` control supplies `children`, a function returning its current controls. These outer controls become sidebar entries; nested submenus with `children` become collapsible groups in the content area. Selection is remembered per root page and tab, with a fallback when the selected section disappears. Direct root controls remain accessible through General when the root also has submenus. Tabs with no submenus use the full content width.
+
+`children` only describes settings: it must not navigate, invoke option actions, or invalidate controls returned earlier in the same frame. The renderer refreshes the selected section's tree each frame, so bindings stay live; search also finds controls inside nested groups. Inline groups do not call their submenu's `activate` callback. Leaf actions use their own callbacks; their Window `option` event is not an index into the original root's controls. List ignores `children` and keeps using `activate` for submenu navigation. Legacy flat pages without `children` keep button-based navigation, and only their root-level submenus enter the sidebar.
+
+Enable `ImGuiConfigFlags_NavEnableKeyboard` in the host for Window keyboard navigation. Keep the host's list hotkeys scoped to List layout so they do not also activate a hidden list option while interacting with Window controls.
 
 Control kinds: action, submenu, toggle, number, toggle + number, and choice. Number controls provide bounds, integer/floating-point mode, precision, and a direct setter; dragging and Ctrl+click typing share validation. `step` is host metadata for keyboard increments; Window sliders permit continuous changes within bounds, rounded for integral controls. Choice controls can also supply an explicit Apply callback for selectors that require confirmation.
 

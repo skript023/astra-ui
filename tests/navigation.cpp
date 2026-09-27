@@ -187,14 +187,13 @@ static void interaction_tests()
 
     f.page.controls.clear();
     f.frame(); f.frame();
-    ImGuiWindow* sidebar=nullptr;
+    ImGuiWindow* tabs=nullptr;
     for (auto* w : ImGui::GetCurrentContext()->Windows)
-        if (std::string(w->Name).find("##sidebar") != std::string::npos) sidebar=w;
-    require(sidebar != nullptr, "sidebar exists");
-    // Sidebar navigation starts at 36px with 44px rows and 10px spacing.
-    const auto p=sidebar->Pos;
-    f.click({p.x+55,p.y+36+54+22});
-    require(f.event.kind == astra::event_kind::tab && f.event.index == 1, "sidebar changes tab");
+        if (std::string(w->Name).find("##tabs") != std::string::npos) tabs=w;
+    require(tabs != nullptr, "horizontal tabs exist");
+    const auto p=tabs->DC.CursorStartPos;
+    f.click({p.x+ImGui::CalcTextSize("Home").x+60,p.y+17});
+    require(f.event.kind == astra::event_kind::tab && f.event.index == 1, "header changes tab");
 
     f.page.breadcrumbs={"Home","Child"};
     f.frame(); f.frame();
@@ -217,6 +216,53 @@ static void interaction_tests()
     ImGui::Render();
     require(ImGui::GetDrawData()->TotalVtxCount > 0, "list selection clamps");
 }
+static void window_hierarchy_tests()
+{
+    ui_fixture f;
+    int actions=0, navigations=0, first_loads=0, second_loads=0;
+    astra::control leaf;
+    leaf.id="leaf"; leaf.label="Nested toggle"; leaf.kind=astra::control_kind::toggle;
+    leaf.activate=[&] { ++actions; };
+    f.mark(leaf);
+    astra::control nested;
+    nested.id="nested"; nested.label="Nested group"; nested.kind=astra::control_kind::submenu;
+    nested.activate=[&] { ++navigations; };
+    nested.children=[&] { return std::vector<astra::control>{leaf}; };
+    astra::control first=nested;
+    first.id="first"; first.label="First section";
+    first.children=[&] { ++first_loads; return std::vector<astra::control>{nested}; };
+    astra::control second=first;
+    second.id="second"; second.label="Second section";
+    second.children=[&] { ++second_loads; return std::vector<astra::control>{leaf}; };
+    f.page.controls={first,second};
+    f.frame(); f.frame();
+    require(first_loads==2 && second_loads==0, "only selected outer submenu loads");
+    f.click(f.center());
+    require(actions==1 && navigations==0, "nested control acts inline without submenu activation");
+    ImGuiWindow* sidebar=nullptr;
+    for (auto* w : ImGui::GetCurrentContext()->Windows)
+        if (std::string(w->Name).find("##sidebar")!=std::string::npos) sidebar=w;
+    require(sidebar && sidebar->ContentSize.y<120, "sidebar contains only outer submenus");
+    const auto start=sidebar->DC.CursorStartPos;
+    f.click({start.x+40,start.y+34+10+17});
+    require(second_loads==1 && navigations==0, "sidebar changes inline section without navigation");
+    f.click(f.center());
+    require(actions==2, "second section callback runs once");
+    const int before=second_loads;
+    f.page.selected_tab=1; f.page.id="other";
+    f.frame();
+    require(second_loads==before, "new tab starts with first outer section");
+    f.page.selected_tab=0; f.page.id="root";
+    f.frame();
+    require(second_loads==before+1, "tab restores its sidebar selection");
+    f.page.controls={first};
+    f.frame();
+    require(second_loads==before+1, "removed selected submenu falls back safely");
+    f.page.controls.clear();
+    f.frame();
+    require(f.event.kind==astra::event_kind::none, "empty window has no stale action");
+}
+
 static void list_mouse_tests()
 {
     ui_fixture f;
@@ -343,6 +389,6 @@ static void list_mouse_tests()
 }
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); interaction_tests(); list_mouse_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

@@ -18,6 +18,7 @@ namespace big
 		}
 
 		~sub_option() noexcept = default;
+		std::uint32_t submenu_id() const { return m_sub_id; }
 		sub_option(sub_option const&) = default;
 		sub_option& operator=(sub_option const&) = default;
 		sub_option(sub_option&&) = default;

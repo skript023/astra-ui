@@ -1,4 +1,5 @@
 #include <astra/host/canvas.hpp>
+#include <astra/host/menu/sub_option.hpp>
 #include "renderer.hpp"
 #include "pointers.hpp"
 #include "fonts/icon_list.hpp"
@@ -7,6 +8,44 @@
 
 namespace big
 {
+
+    std::vector<astra::control> canvas::window_controls(abstract_submenu* sub,
+        std::vector<std::uint32_t> ancestors)
+    {
+        if (std::find(ancestors.begin(), ancestors.end(), sub->get_id()) != ancestors.end())
+            return {};
+        ancestors.push_back(sub->get_id());
+        // A submenu can be linked from multiple groups; rebuilding it twice would
+        // invalidate callbacks already collected for this frame.
+        if (m_window_prepared.insert(sub).second)
+        {
+            sub->reset();
+            sub->execute();
+        }
+        std::vector<astra::control> controls;
+        for (std::size_t i = 0; i < sub->get_num_option(); ++i)
+        {
+            auto* opt = sub->get_option(i);
+            if (!opt) continue;
+            auto c = opt->describe_ui();
+            c.id = c.label + "##" + std::to_string(i);
+            if (opt->get_flag(OptionFlag::SidePanel))
+                c.draw_details = [opt] { opt->draw_side_panel(); };
+            if (auto* link = dynamic_cast<sub_option*>(opt))
+            {
+                for (const auto& child : m_all_submenu)
+                    if (child->get_id() == link->submenu_id())
+                    {
+                        c.children = [this, child = child.get(), ancestors] {
+                            return window_controls(child, ancestors);
+                        };
+                        break;
+                    }
+            }
+            controls.push_back(std::move(c));
+        }
+        return controls;
+    }
 
     void canvas::tick_impl()
     {
@@ -18,7 +57,8 @@ namespace big
             (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard);
         if (!m_opened || active_history().empty()) return;
 
-        auto* sub = active_history().back();
+        const bool window_layout = g_settings.window.layout == 1;
+        auto* sub = window_layout ? active_history().front() : active_history().back();
         sub->reset();
         sub->execute();
         astra::page page;
@@ -38,6 +78,13 @@ namespace big
             if (opt->get_flag(OptionFlag::SidePanel))
                 c.draw_details = [opt] { opt->draw_side_panel(); };
             page.controls.push_back(std::move(c));
+        }
+        if (window_layout)
+        {
+            m_window_prepared.clear();
+            m_window_prepared.insert(sub);
+            page.controls = window_controls(sub, {});
+            page.breadcrumbs = {sub->get_name()};
         }
         platform_prepare_render();
         static int last_theme = -1;
@@ -99,7 +146,9 @@ namespace big
         case astra::event_kind::tab: m_navigation.select_tab(event.index); break;
         case astra::event_kind::back: m_navigation.back(); break;
         case astra::event_kind::breadcrumb: m_navigation.to_depth(event.index); break;
-        case astra::event_kind::option: sub->set_selected_option(event.index); break;
+        case astra::event_kind::option:
+            if (!window_layout) sub->set_selected_option(event.index);
+            break;
         default: break;
         }
     }
@@ -152,7 +201,7 @@ namespace big
 				play_sound(m_opened ? "SELECT" : "BACK");
 		}
 
-		if (ImGui::GetIO().WantTextInput) return;
+		if (ImGui::GetIO().WantTextInput || g_settings.window.layout == 1) return;
 
 		static Timer backTimer(0ms);
 		backTimer.SetDelay(std::chrono::milliseconds(g_settings.window.m_back_delay));

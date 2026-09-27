@@ -11,229 +11,228 @@ static bool matches(const std::string &text, const char *query) {
   };
   return lower(text).find(lower(query)) != std::string::npos;
 }
+
 static ImU32 ink(ImVec4 c, float alpha = 1.f) {
   c.w *= alpha;
   return pack_color(c);
 }
-static void category_icon(ImDrawList *draw, ImVec2 p, std::size_t index,
-                          ImU32 color) {
-  if (index == 0) {
-    for (int y = 0; y < 2; ++y)
-      for (int x = 0; x < 2; ++x)
-        draw->AddRect({p.x + x * 8, p.y + y * 8},
-                      {p.x + x * 8 + 5, p.y + y * 8 + 5}, color, 1.5f, 0, 1.4f);
-  } else if (index == 1) {
-    draw->AddCircle({p.x + 7, p.y + 7}, 7, color, 20, 1.4f);
-    draw->AddTriangle({p.x + 10, p.y + 3}, {p.x + 8, p.y + 9},
-                      {p.x + 3, p.y + 11}, color, 1.3f);
-  } else {
-    for (int y = 0; y < 3; ++y) {
-      draw->AddLine({p.x, p.y + y * 6}, {p.x + 15, p.y + y * 6}, color, 1.4f);
-      draw->AddCircleFilled({p.x + (y == 1 ? 10.f : 5.f), p.y + y * 6}, 2.5f,
-                            color);
-    }
+
+struct window_group {
+  control item;
+  std::vector<window_group> children;
+};
+
+// Resolve each visible branch once per frame so callbacks keep their owners.
+static std::vector<window_group> resolve_groups(
+    const std::vector<control> &controls, unsigned depth = 0) {
+  std::vector<window_group> groups;
+  for (const auto &c : controls) {
+    window_group group{c, {}};
+    if (c.children && depth < 32)
+      group.children = resolve_groups(c.children(), depth + 1);
+    groups.push_back(std::move(group));
   }
+  return groups;
 }
+
+static bool group_matches(const window_group &group, const char *query) {
+  if (matches(group.item.label + " " + group.item.description, query))
+    return true;
+  for (const auto &child : group.children)
+    if (group_matches(child, query))
+      return true;
+  return false;
+}
+
+static void draw_group(const window_group &group, const char *query,
+                       std::function<void()> &pending) {
+  const auto &c = group.item;
+  if (!group_matches(group, query))
+    return;
+  ImGui::PushID(c.id.c_str());
+  if (c.kind == control_kind::submenu && c.children) {
+    if (*query)
+      ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+    if (ImGui::CollapsingHeader(c.label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+      const char *child_query = matches(c.label + " " + c.description, query) ? "" : query;
+      ImGui::Indent(10);
+      if (group.children.empty())
+        ImGui::TextDisabled("No options in this section.");
+      for (const auto &child : group.children)
+        draw_group(child, child_query, pending);
+      ImGui::Unindent(10);
+    }
+  } else {
+    auto action = draw_control(c);
+    if (action && !pending)
+      pending = std::move(action);
+    if (ImGui::IsItemHovered() && !c.description.empty())
+      ImGui::SetTooltip("%s", c.description.c_str());
+    ImGui::Spacing();
+  }
+  ImGui::PopID();
+}
+
 event menu::draw_window(const char *id, const page &model, bool &open,
                         const theme &target) {
   const auto colors = animate_theme(target);
   scoped_theme style(colors);
   event result;
   std::function<void()> pending;
-  if (search_page_ != model.id) {
-    search_.fill(0);
-    search_page_ = model.id;
+  const std::string tab_key = model.id + "##" + std::to_string(model.selected_tab);
+  auto &selected = window_sections_[tab_key];
+  std::vector<std::size_t> sections;
+  bool has_root_controls = false;
+  for (std::size_t i = 0; i < model.controls.size(); ++i) {
+    if (model.controls[i].kind == control_kind::submenu && model.breadcrumbs.size() <= 1)
+      sections.push_back(i);
+    else
+      has_root_controls = true;
   }
+  const auto selected_exists = [&] {
+    for (auto i : sections)
+      if (model.controls[i].id == selected)
+        return true;
+    return false;
+  };
+  if (!selected_exists() && !(selected.empty() && has_root_controls))
+    selected = sections.empty() ? "" : model.controls[sections.front()].id;
+
   ImGui::SetNextWindowSize({1000, 680}, ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSizeConstraints({760, 520}, {FLT_MAX, FLT_MAX});
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
   const bool visible = ImGui::Begin(
-      id, &open,
-      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+      id, &open, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
   ImGui::PopStyleVar();
   if (visible) {
     const auto origin = ImGui::GetWindowPos();
     const auto size = ImGui::GetWindowSize();
     auto *draw = ImGui::GetWindowDrawList();
-    const float sidebar_width = 212;
+    const float sidebar_width = sections.empty() ? 0.f : 200.f;
     const auto edge = ink(colors.muted, 0.15f);
     draw->AddRectFilled(origin, {origin.x + size.x, origin.y + 72},
-                        ink(colors.panel), colors.rounding,
-                        ImDrawFlags_RoundCornersTop);
-    draw->AddRectFilled({origin.x, origin.y + 72},
-                        {origin.x + sidebar_width, origin.y + size.y},
-                        ink(colors.panel), colors.rounding,
-                        ImDrawFlags_RoundCornersBottomLeft);
-    draw->AddLine({origin.x, origin.y + 72}, {origin.x + size.x, origin.y + 72},
-                  edge);
-    draw->AddLine({origin.x + sidebar_width, origin.y + 72},
-                  {origin.x + sidebar_width, origin.y + size.y}, edge);
-    // Explicit header drag area keeps moving independent of host ImGui
-    // settings.
+                        ink(colors.panel), colors.rounding, ImDrawFlags_RoundCornersTop);
+    draw->AddLine({origin.x, origin.y + 72}, {origin.x + size.x, origin.y + 72}, edge);
+    if (sidebar_width) {
+      draw->AddRectFilled({origin.x, origin.y + 72},
+                          {origin.x + sidebar_width, origin.y + size.y},
+                          ink(colors.panel), colors.rounding, ImDrawFlags_RoundCornersBottomLeft);
+      draw->AddLine({origin.x + sidebar_width, origin.y + 72},
+                    {origin.x + sidebar_width, origin.y + size.y}, edge);
+    }
     ImGui::SetCursorPos({0, 0});
-    ImGui::InvisibleButton("##drag", {size.x - 70, 72});
+    ImGui::InvisibleButton("##drag", {180, 72});
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0))
       ImGui::SetWindowPos({origin.x + ImGui::GetIO().MouseDelta.x,
                            origin.y + ImGui::GetIO().MouseDelta.y});
-    draw->AddRectFilled({origin.x + 24, origin.y + 20},
-                        {origin.x + 56, origin.y + 52}, ink(colors.accent), 9);
-    draw->AddText(ImGui::GetFont(), 21, {origin.x + 32, origin.y + 23},
-                  IM_COL32_WHITE, "Q");
-    draw->AddText(ImGui::GetFont(), 23, {origin.x + 69, origin.y + 20},
+    draw->AddText(ImGui::GetFont(), 23, {origin.x + 24, origin.y + 23},
                   ink(colors.text), "Astra");
-    draw->AddText(ImGui::GetFont(), 12, {origin.x + 71, origin.y + 45},
-                  ink(colors.muted), "YOUR WORKSPACE");
-    ImGui::SetCursorPos({size.x - 49, 22});
-    if (ImGui::InvisibleButton("##close", {28, 28}))
-      open = false;
-    const auto close = ImGui::GetItemRectMin();
-    if (ImGui::IsItemHovered()) {
-      draw->AddCircleFilled({close.x + 14, close.y + 14}, 14,
-                            ink(colors.field));
-      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-    }
-    draw->AddLine({close.x + 10, close.y + 10}, {close.x + 18, close.y + 18},
-                  ink(colors.muted), 1.5f);
-    draw->AddLine({close.x + 18, close.y + 10}, {close.x + 10, close.y + 18},
-                  ink(colors.muted), 1.5f);
 
-    ImGui::SetCursorPos({16, 98});
-    if (ImGui::BeginChild("##sidebar", {sidebar_width - 32, size.y - 120}, 0,
-                          ImGuiWindowFlags_NoBackground)) {
-      ImGui::TextDisabled("WORKSPACE");
-      ImGui::SetCursorPosY(36);
+    ImGui::SetCursorPos({200, 18});
+    if (ImGui::BeginChild("##tabs", {size.x - 264, 48}, 0,
+                          ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_HorizontalScrollbar)) {
       for (std::size_t i = 0; i < model.tabs.size(); ++i) {
+        if (i) ImGui::SameLine();
         ImGui::PushID(static_cast<int>(i));
-        const auto p = ImGui::GetCursorScreenPos();
-        const float width = ImGui::GetContentRegionAvail().x;
-        const bool selected = i == model.selected_tab;
-        ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
-        if (ImGui::Selectable("##tab", selected, 0, {width, 44}))
+        const bool active = i == model.selected_tab;
+        ImGui::PushStyleColor(ImGuiCol_Button, active ? colors.field : ImVec4{0, 0, 0, 0});
+        if (ImGui::Button(model.tabs[i].c_str(), {0, 34}))
           result = {event_kind::tab, i};
-        ImGui::PopStyleColor(3);
-        auto *nav = ImGui::GetWindowDrawList();
-        if (selected || ImGui::IsItemHovered())
-          nav->AddRectFilled(
-              p, {p.x + width, p.y + 44},
-              selected ? ink(colors.accent, 0.10f) : ink(colors.field), 8);
-        category_icon(nav, {p.x + 14, p.y + 15}, i,
-                      ink(selected ? colors.selection : colors.muted));
-        nav->PushClipRect({p.x + 38, p.y}, {p.x + width - 8, p.y + 44}, true);
-        nav->AddText({p.x + 42, p.y + (44 - ImGui::GetFontSize()) / 2},
-                     ink(selected ? colors.selection_text : colors.text),
-                     model.tabs[i].c_str());
-        nav->PopClipRect();
-        if (ImGui::IsItemHovered())
-          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        ImGui::PopStyleColor();
+        if (active) {
+          const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+          ImGui::GetWindowDrawList()->AddLine({a.x, b.y}, b, ink(colors.accent), 2);
+        }
         ImGui::PopID();
       }
-      ImGui::SetCursorPosY(
-          std::max(ImGui::GetCursorPosY() + 24, ImGui::GetWindowHeight() - 70));
-      ImGui::Separator();
-      ImGui::Spacing();
-      ImGui::TextDisabled("Make it yours.");
-      ImGui::PushTextWrapPos(0);
-      ImGui::TextDisabled("Explore themes in Settings.");
-      ImGui::PopTextWrapPos();
     }
     ImGui::EndChild();
+    ImGui::SetCursorPos({size.x - 48, 22});
+    if (ImGui::Button("X##close", {28, 28}))
+      open = false;
 
-    ImGui::SetCursorPos({sidebar_width + 28, 94});
-    if (ImGui::BeginChild("##content",
-                          {size.x - sidebar_width - 56, size.y - 116}, 0,
-                          ImGuiWindowFlags_NoBackground)) {
-      ImGui::BeginDisabled(model.breadcrumbs.size() <= 1);
-      if (ImGui::SmallButton("< Back"))
-        result = {event_kind::back};
-      ImGui::EndDisabled();
-      for (std::size_t i = 0; i < model.breadcrumbs.size(); ++i) {
-        if (ImGui::GetContentRegionAvail().x >
-            ImGui::CalcTextSize(model.breadcrumbs[i].c_str()).x + 40)
-          ImGui::SameLine();
-        ImGui::PushID(static_cast<int>(i));
-        ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
-        if (ImGui::SmallButton(model.breadcrumbs[i].c_str()))
-          result = {event_kind::breadcrumb, i};
-        ImGui::PopStyleColor();
-        ImGui::PopID();
-      }
-      ImGui::Dummy({0, 10});
-      const auto heading = ImGui::GetCursorScreenPos();
-      auto *content = ImGui::GetWindowDrawList();
-      content->AddText(ImGui::GetFont(), 29, heading, ink(colors.text),
-                       model.title.c_str());
-      ImGui::Dummy({0, 37});
-      ImGui::TextDisabled("Your settings, just the way you like them.");
-      ImGui::Dummy({0, 8});
-      ImGui::SetNextItemWidth(-1);
-      ImGui::InputTextWithHint("##search", "Search this page...",
-                               search_.data(), search_.size());
-      ImGui::Dummy({0, 10});
-      bool has_submenus = false;
-      for (const auto &c : model.controls)
-        has_submenus |= c.kind == control_kind::submenu;
-      if (has_submenus) {
-        ImGui::BeginGroup();
-        for (std::size_t i = 0; i < model.controls.size(); ++i) {
+    if (sidebar_width) {
+      ImGui::SetCursorPos({12, 88});
+      if (ImGui::BeginChild("##sidebar", {sidebar_width - 24, size.y - 104}, 0,
+                            ImGuiWindowFlags_NoBackground)) {
+        if (has_root_controls && ImGui::Selectable("General", selected.empty(), 0, {0, 34}))
+          selected.clear();
+        for (auto i : sections) {
           const auto &c = model.controls[i];
-          if (c.kind != control_kind::submenu)
-            continue;
           ImGui::PushID(c.id.c_str());
-          if (i != 0)
-            ImGui::SameLine(0, 8);
-          if (ImGui::Button(
-                  c.label.c_str(),
-                  {ImGui::CalcTextSize(c.label.c_str()).x + 34.f, 34.f})) {
-            if (c.activate && result.kind == event_kind::none)
+          if (ImGui::Selectable(c.label.c_str(), selected == c.id, 0, {0, 34})) {
+            selected = c.id;
+            // Legacy hosts without inline contents can still open their submenu.
+            if (!c.children && c.activate && result.kind == event_kind::none) {
               pending = c.activate;
-            result = {event_kind::option, i};
+              result = {event_kind::option, i};
+            }
           }
+          if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", c.description.empty() ? c.label.c_str() : c.description.c_str());
           ImGui::PopID();
         }
-        ImGui::EndGroup();
-        ImGui::Dummy({0, 8});
       }
-      ImGui::PushID(model.id.c_str());
-      if (ImGui::BeginChild("##options", {0, 0}, 0,
-                            ImGuiWindowFlags_NoBackground)) {
-        const int columns = ImGui::GetContentRegionAvail().x >= 640 ? 2 : 1;
+      ImGui::EndChild();
+    }
+
+    const control *section = nullptr;
+    for (auto i : sections)
+      if (model.controls[i].id == selected) section = &model.controls[i];
+    const auto search_key = tab_key + "/" + selected;
+    if (search_page_ != search_key) {
+      search_.fill(0);
+      search_page_ = search_key;
+    }
+    std::vector<control> controls;
+    if (section && section->children)
+      controls = section->children();
+    else if (!section)
+      for (const auto &c : model.controls)
+        if (c.kind != control_kind::submenu || model.breadcrumbs.size() > 1) controls.push_back(c);
+    const auto groups = resolve_groups(controls);
+
+    ImGui::SetCursorPos({sidebar_width + 20, 88});
+    if (ImGui::BeginChild("##content", {size.x - sidebar_width - 40, size.y - 108}, 0,
+                          ImGuiWindowFlags_NoBackground)) {
+      // Breadcrumbs remain available to hosts that still supply flat pages.
+      if (model.breadcrumbs.size() > 1) {
+        if (ImGui::SmallButton("< Back")) result = {event_kind::back};
+        for (std::size_t i = 0; i < model.breadcrumbs.size(); ++i) {
+          ImGui::SameLine();
+          ImGui::PushID(static_cast<int>(i));
+          if (ImGui::SmallButton(model.breadcrumbs[i].c_str()))
+            result = {event_kind::breadcrumb, i};
+          ImGui::PopID();
+        }
+      }
+      ImGui::TextUnformatted(section ? section->label.c_str() : model.title.c_str());
+      ImGui::SetNextItemWidth(-1);
+      ImGui::InputTextWithHint("##search", "Search this section...", search_.data(), search_.size());
+      ImGui::Spacing();
+      ImGui::PushID(search_key.c_str());
+      if (ImGui::BeginChild("##options", {0, 0}, 0, ImGuiWindowFlags_NoBackground)) {
+        const int columns = ImGui::GetContentRegionAvail().x >= 600 ? 2 : 1;
         std::size_t shown = 0;
-        if (ImGui::BeginTable("##cards", columns,
-                              ImGuiTableFlags_SizingStretchSame)) {
-          for (std::size_t i = 0; i < model.controls.size(); ++i) {
-            const auto &c = model.controls[i];
-            if (c.kind == control_kind::submenu)
-              continue;
-            if (!matches(c.label + " " + c.description, search_.data()))
-              continue;
-            ++shown;
+        if (ImGui::BeginTable("##groups", columns, ImGuiTableFlags_SizingStretchSame)) {
+          for (int column = 0; column < columns; ++column) {
             ImGui::TableNextColumn();
-            ImGui::PushID(c.id.c_str());
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {18, 16});
-            if (ImGui::BeginChild("##card", {0, 0}, true,
-                                  ImGuiWindowFlags_AlwaysUseWindowPadding)) {
-              auto action = draw_control(c);
-              if (action && result.kind == event_kind::none) {
-                pending = std::move(action);
+            std::size_t matched = 0;
+            for (std::size_t i = 0; i < groups.size(); ++i) {
+              if (!group_matches(groups[i], search_.data())) continue;
+              if (matched++ % columns != static_cast<std::size_t>(column)) continue;
+              ++shown;
+              const bool had_action = static_cast<bool>(pending);
+              draw_group(groups[i], search_.data(), pending);
+              if (!had_action && pending && result.kind == event_kind::none)
                 result = {event_kind::option, i};
-              }
             }
-            ImGui::EndChild();
-            if (ImGui::IsItemHovered() && !c.description.empty())
-              ImGui::SetTooltip("%s", c.description.c_str());
-            ImGui::PopStyleVar();
-            ImGui::Dummy({0, 4});
-            ImGui::PopID();
           }
           ImGui::EndTable();
         }
-        if (!shown && !has_submenus)
-          ImGui::TextDisabled(model.controls.empty()
-                                  ? "No options on this page."
-                                  : "No matching options.");
+        if (!shown)
+          ImGui::TextDisabled(controls.empty() ? "No options in this section." : "No matching options.");
       }
       ImGui::EndChild();
       ImGui::PopID();

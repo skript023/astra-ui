@@ -3,6 +3,7 @@
 #include "theme.hpp"
 #include <array>
 #include <vector>
+#include <unordered_map>
 
 namespace astra
 {
@@ -21,6 +22,7 @@ namespace astra
 	{
 		std::array<char, 128> search_{};
 		std::string search_page_;
+		std::unordered_map<std::string, std::string> window_sections_;
 		theme displayed_theme_{};
 		bool theme_initialized_ = false;
 		std::vector<float> tab_widths_;

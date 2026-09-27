@@ -144,6 +144,27 @@ int main(int argc,char** argv)
             }
             if (layout==1)
             {
+                if (nav.selected_tab()!=2)
+                {
+                    const auto original = page.controls;
+                    astra::control feature;
+                    feature.id="feature"; feature.label="Feature";
+                    feature.kind=astra::control_kind::submenu;
+                    feature.children=[original] {
+                        astra::control advanced;
+                        advanced.id="advanced"; advanced.label="Advanced options";
+                        advanced.kind=astra::control_kind::submenu;
+                        advanced.children=[original] { return std::vector<astra::control>{original[3]}; };
+                        return std::vector<astra::control>{original[0], original[1], original[2], advanced};
+                    };
+                    astra::control actions_section;
+                    actions_section.id="actions"; actions_section.label="Actions";
+                    actions_section.kind=astra::control_kind::submenu;
+                    actions_section.children=[original] { return std::vector<astra::control>{original[5]}; };
+                    page.controls={feature, actions_section};
+                    page.id=std::to_string(nav.selected_tab());
+                    page.breadcrumbs={page.tabs[nav.selected_tab()]};
+                }
                 ImGui::SetNextWindowPos({50,20},ImGuiCond_FirstUseEver);
                 const auto event=menu.draw_window("Astra",page,open,astra::preset_theme(theme));
                 if (event.kind==astra::event_kind::tab) nav.select_tab(event.index);
