@@ -1,6 +1,6 @@
 # Astra
 
-A standalone C++17 menu library built on Dear ImGui. Navigation, data bindings, themes, List layout, and clickable Window layout are separate modules. There are no Unity/Unreal types, game globals, process hooks, or project precompiled headers in this package.
+A standalone C++23 menu library built on Dear ImGui. Navigation, data bindings, themes, List layout, and clickable Window layout are separate modules. There are no Unity/Unreal types, game globals, process hooks, or project precompiled headers in this package.
 
 The Studio theme uses a light workspace, purple accents, a custom header, and thin sliders. Window layout places tabs across the header and outer submenus in the sidebar, with nested settings grouped in the content area. Emerald, Violet, and Ocean are dark alternatives. The host can supply any `theme` palette.
 
@@ -22,6 +22,8 @@ The graphics targets compile official ImGui backends. They do not discover a gam
 OpenGL here means the modern OpenGL3 backend; legacy fixed-function OpenGL2 is not included.
 
 ## CMake integration
+
+Astra requires C++23 or newer. Linking `astra::core` or `astra::ui` propagates this requirement to the consuming target through CMake compile features. C++26 is not required because the currently installed MSVC/CMake toolchain does not advertise `cxx_std_26` support.
 
 Use a local checkout:
 
