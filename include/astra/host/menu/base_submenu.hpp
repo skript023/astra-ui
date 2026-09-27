@@ -1,6 +1,7 @@
 #pragma once
 #include <astra/host/menu/abstract_submenu.hpp>
 #include <astra/host/menu/abstract_option.hpp>
+#include <astra/options.hpp>
 
 namespace big
 {
@@ -30,6 +31,11 @@ namespace big
 		{
 			m_options.clear();
 		}
+
+        void add_ui_option(astra::control value) override
+        {
+            m_options.push_back(std::make_unique<astra::bound_option>(std::move(value)));
+        }
 
 		abstract_option* get_option(std::size_t i) override
 		{

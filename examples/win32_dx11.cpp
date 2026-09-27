@@ -8,6 +8,7 @@
 #include <imgui_impl_dx11.h>
 #include <astra/menu.hpp>
 #include <astra/navigation.hpp>
+#include <astra/key_settings.hpp>
 #include <fstream>
 #include <cstdio>
 #include <stdexcept>
@@ -57,7 +58,8 @@ int main(int argc,char** argv)
     try
     {
         const bool list_snapshot=argc > 2 && std::string(argv[1]) == "--snapshot-list";
-        const bool snapshot=list_snapshot || (argc > 2 && std::string(argv[1]) == "--snapshot");
+        const bool controls_snapshot=argc > 2 && std::string(argv[1]) == "--snapshot-controls";
+        const bool snapshot=list_snapshot || controls_snapshot || (argc > 2 && std::string(argv[1]) == "--snapshot");
         WNDCLASSW wc{}; wc.lpfnWndProc=window_proc; wc.hInstance=GetModuleHandleW(nullptr); wc.lpszClassName=L"AstraDemo";
         RegisterClassW(&wc);
         HWND window=CreateWindowW(wc.lpszClassName,L"Astra - standalone demo",WS_OVERLAPPEDWINDOW,
@@ -89,17 +91,22 @@ int main(int argc,char** argv)
         if (!snapshot) ShowWindow(window,SW_SHOWDEFAULT);
         astra::menu menu;
         astra::navigation<int> nav; nav.add_tab(0); nav.add_tab(1); nav.add_tab(2);
-        bool open=true, enabled=true, notifications=true;
+        bool running=true, open=true, enabled=true, notifications=true;
+        astra::key_settings key_settings;
+        auto keys=astra::default_key_bindings;
+        if (controls_snapshot) { nav.select_tab(2); key_settings.open(keys); }
+        std::array<bool,9> was_down{};
+        std::array<double,9> repeat_at{};
         double strength=65;
         int difficulty=1, theme=4, layout=list_snapshot ? 0 : 1, actions=0;
         std::size_t selected_option=0;
         int frame=0;
-        while (open)
+        while (running)
         {
             MSG message;
             while (PeekMessageW(&message,nullptr,0,0,PM_REMOVE))
-            { TranslateMessage(&message); DispatchMessageW(&message); if (message.message == WM_QUIT) open=false; }
-            if (!open) break;
+            { TranslateMessage(&message); DispatchMessageW(&message); if (message.message == WM_QUIT) running=false; }
+            if (!running) break;
             if (!snapshot && resize_width && resize_height)
             {
                 context->OMSetRenderTargets(0,nullptr,nullptr); target.Reset();
@@ -107,6 +114,17 @@ int main(int argc,char** argv)
                 resize_width=resize_height=0; create_target();
             }
             ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
+            std::array<bool,9> pressed{}, repeated{};
+            for (std::size_t i=0; i<keys.size(); ++i)
+            {
+                const bool down=!snapshot && GetForegroundWindow()==window && (GetAsyncKeyState(keys[i]) & 0x8000);
+                pressed[i]=down && !was_down[i];
+                repeated[i]=pressed[i] || (down && ImGui::GetTime()>=repeat_at[i]);
+                if (repeated[i]) repeat_at[i]=ImGui::GetTime()+(pressed[i] ? .35 : .12);
+                was_down[i]=down;
+            }
+            const bool allow_keys=!key_settings.active() && !ImGui::GetIO().WantTextInput;
+            if (allow_keys && pressed[0]) open=!open;
             astra::page page;
             page.tabs={"Overview","Tools","Settings"}; page.selected_tab=nav.selected_tab();
             page.id=std::to_string(nav.path().back());
@@ -123,6 +141,9 @@ int main(int argc,char** argv)
                 mode.choices={"List","Window"}; mode.choice=layout; mode.set_choice=[&](int n){layout=n;};
                 auto& palette=add("theme","Color theme",astra::control_kind::choice);
                 palette.choices={"Emerald","Violet","Ocean","Custom","Studio"}; palette.choice=theme; palette.set_choice=[&](int n){theme=n;};
+                auto& controls=add("menu_controls","Menu controls",astra::control_kind::action);
+                controls.description="Change the menu hotkey and list navigation buttons.";
+                controls.activate=[&] { key_settings.open(keys); };
             }
             else
             {
@@ -142,7 +163,37 @@ int main(int argc,char** argv)
                 auto& action=add("run","Run action",astra::control_kind::action);
                 action.description="Actions run once per click. Count: "+std::to_string(actions); action.activate=[&]{++actions;};
             }
-            if (layout==1)
+            if (open && layout==0 && allow_keys)
+            {
+                if (pressed[1]) { nav.back(); selected_option=0; }
+                else if (repeated[7] || repeated[8])
+                {
+                    const auto count=page.tabs.size();
+                    nav.select_tab((nav.selected_tab()+ (repeated[7] ? count-1 : 1)) % count);
+                    selected_option=0;
+                }
+                else if (!page.controls.empty())
+                {
+                    selected_option=std::min(selected_option,page.controls.size()-1);
+                    if (repeated[3]) selected_option=(selected_option+page.controls.size()-1)%page.controls.size();
+                    else if (repeated[4]) selected_option=(selected_option+1)%page.controls.size();
+                    else
+                    {
+                        const auto& c=page.controls[selected_option];
+                        if (pressed[2] && c.activate) c.activate();
+                        else if (repeated[5] || repeated[6])
+                        {
+                            const int direction=repeated[5] ? -1 : 1;
+                            if (c.kind==astra::control_kind::choice && c.set_choice && !c.choices.empty())
+                                c.set_choice((c.choice+direction+static_cast<int>(c.choices.size()))%static_cast<int>(c.choices.size()));
+                            else if (c.set_value)
+                                c.set_value(astra::bounded_value(c.value+direction*c.step,c.minimum,c.maximum,c.integral));
+                        }
+                    }
+                    page.selected_option=selected_option;
+                }
+            }
+            if (open && layout==1)
             {
                 if (nav.selected_tab()!=2)
                 {
@@ -171,15 +222,35 @@ int main(int argc,char** argv)
                 if (event.kind==astra::event_kind::back) nav.back();
                 if (event.kind==astra::event_kind::breadcrumb) nav.to_depth(event.index);
             }
-            else
+            else if (open)
             {
-                const auto event=menu.draw_list(page,astra::preset_theme(theme),{});
+                astra::list_style list_style;
+                list_style.mouse_enabled=!key_settings.active();
+                const auto event=menu.draw_list(page,astra::preset_theme(theme),list_style);
                 if (event.kind==astra::event_kind::tab) { nav.select_tab(event.index); selected_option=0; }
                 if (event.kind==astra::event_kind::back) nav.back();
                 if (event.kind==astra::event_kind::option) selected_option=event.index;
                 if (!snapshot) {
                     if (ImGui::Begin("Demo controls")) { if (ImGui::Button("Return to Window")) layout=1; }
                     ImGui::End();
+                }
+            }
+            if (!open && !snapshot)
+            {
+                if (ImGui::Begin("Demo controls"))
+                {
+                    ImGui::Text("Press %s to open the menu.",astra::menu_key_name(keys[0]).c_str());
+                    if (ImGui::Button("Open menu")) open=true;
+                }
+                ImGui::End();
+            }
+            if (const auto updated=key_settings.draw(astra::preset_theme(theme)))
+            {
+                keys=*updated;
+                for (std::size_t i=0; i<keys.size(); ++i)
+                {
+                    was_down[i]=(GetAsyncKeyState(keys[i]) & 0x8000)!=0;
+                    repeat_at[i]=ImGui::GetTime()+.35;
                 }
             }
             ImGui::Render();

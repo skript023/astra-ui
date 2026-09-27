@@ -99,6 +99,23 @@ The library never creates or destroys the host's ImGui context. Themes restore t
 
 ## Build, tests, and demo
 
+### Menu controls
+
+The demo exposes **Settings > Menu controls** in both layouts. The game adapter adds **Menu controls** to the root of the last registered tab (or the root page when there are no tabs). Click the current binding, then press the new keyboard key when it shows **Press a key...**. Select **Apply** to confirm. **Escape** or **Stop recording** cancels recording without changing that binding; Escape is reserved for cancellation while recording. Keys already held when recording starts are ignored until released and pressed again. Recording stops if the panel loses focus. Bindings are single keys, not modifier combinations. **Cancel** leaves existing keys unchanged; **Reset defaults** changes the draft and still requires Apply. Conflicting assignments are rejected, including conflicts with the menu open key.
+
+| Action | Reset default |
+| --- | --- |
+| Open / close menu | Insert |
+| Back | Backspace |
+| Select / activate | Enter |
+| Move through list | Up / Down |
+| Change value or choice | Left / Right |
+| Previous / next tab | Page Up / Page Down |
+
+The panel pauses menu hotkeys and list input while editing, enables mouse input even for a keyboard-only list, and temporarily enables ImGui keyboard navigation. Existing controller bindings are unchanged. The List renderer and its appearance are unchanged.
+
+The adapter updates the existing nine `g_settings.window.*_key` fields after Apply. Saving these fields across launches remains the host's settings serializer's responsibility; that serializer is not included in this repository. Demo changes last for the current run. Standalone hosts can include `astra/key_settings.hpp`, call `open(current_keys)`, then commit the optional value returned by `draw(theme)`. Values use Windows virtual-key codes. Custom submenu implementations outside `base_submenu` must implement `add_ui_option` to accept the adapter's controls entry.
+
 From a Visual Studio Developer PowerShell:
 
 ```powershell

@@ -12,6 +12,7 @@ namespace big
 		virtual std::uint32_t get_id() = 0;
 		virtual void execute() = 0;
 		virtual void reset() = 0;
+        virtual void add_ui_option(astra::control) {}
 
 		virtual abstract_option* get_option(std::size_t i) = 0;
 		virtual std::size_t get_num_option() = 0;

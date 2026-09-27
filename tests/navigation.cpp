@@ -1,6 +1,7 @@
 #include <astra/menu.hpp>
 #include <astra/options.hpp>
 #include <astra/navigation.hpp>
+#include <astra/key_settings.hpp>
 #include "../src/widgets.hpp"
 #include <imgui_internal.h>
 #include <cmath>
@@ -70,6 +71,31 @@ static void option_binding_tests()
     choice.handle_action(astra::option_action::RightPress);
     require(selected == 1 && choice.describe_ui().choice == 1, "choice binding cycles and refreshes live state");
 }
+
+static void key_settings_tests()
+{
+    astra::key_settings editor;
+    auto current=astra::default_key_bindings;
+    require(astra::validate_key_bindings(current).empty(), "default keys are unique");
+    editor.open(current);
+    editor.draft()[0]=0x75;
+    require(current[0]==0x2D, "editing draft does not replace active hotkey");
+    editor.draft()[1]=0x75;
+    require(!editor.apply() && editor.active(), "duplicate keys rejected without closing editor");
+    editor.draft()[1]=0;
+    require(!editor.apply(), "unbound navigation key rejected");
+    editor.draft()[1]=current[1];
+    auto updated=editor.apply();
+    require(updated && (*updated)[0]==0x75 && !editor.active(), "valid hotkey applies atomically");
+    require(!editor.apply(), "apply cannot fire again after closing");
+    editor.open(*updated);
+    editor.reset();
+    require(editor.active() && editor.draft()==astra::default_key_bindings, "reset remains a draft");
+    editor.cancel();
+    require(!editor.apply() && (*updated)[0]==0x75, "cancel preserves previous active bindings");
+    require(astra::menu_key_name(0x75)=="F6", "key names match virtual-key codes");
+    require(astra::menu_key_name(0x60)=="Numpad 0", "numpad is distinct from number row");
+}
 struct ui_fixture
 {
     astra::menu menu;
@@ -130,6 +156,77 @@ struct ui_fixture
     }
     ImVec2 center() { return {(item_min.x+item_max.x)/2,(item_min.y+item_max.y)/2}; }
 };
+static void key_settings_ui_tests()
+{
+    ui_fixture f;
+    astra::key_settings editor;
+    const auto flags=ImGui::GetIO().ConfigFlags;
+    editor.open(astra::default_key_bindings);
+    require((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard)!=0,
+        "key editor enables keyboard navigation while open");
+    for (int i=0; i<2; ++i)
+    {
+        ImGui::NewFrame();
+        editor.draw(astra::preset_theme(4));
+        ImGui::Render();
+    }
+    auto* panel=ImGui::FindWindowByName("Menu controls###astra_key_settings");
+    require(panel && panel->Active && ImGui::GetDrawData()->TotalVtxCount>0,
+        "key editor renders its panel");
+    const auto frame = [&] {
+        ImGui::NewFrame();
+        editor.draw(astra::preset_theme(4));
+        ImGui::Render();
+    };
+    ImVec2 binding;
+    {
+        astra::scoped_theme style(astra::preset_theme(4));
+        const float text_height=ImGui::CalcTextSize(
+            "Click a binding, then press one keyboard key. Escape cancels recording. Apply confirms your changes.",
+            nullptr,false,panel->WorkRect.GetWidth()).y;
+        binding={panel->DC.CursorStartPos.x+60,
+            panel->DC.CursorStartPos.y+text_height+2*ImGui::GetStyle().ItemSpacing.y+ImGui::GetFrameHeight()/2};
+    }
+    auto& io=ImGui::GetIO();
+    io.AddMousePosEvent(binding.x,binding.y); frame();
+    io.AddMouseButtonEvent(0,true); frame();
+    io.AddMouseButtonEvent(0,false); frame();
+    require(editor.recording(), "click binding starts key recording");
+    require(!editor.apply(), "apply is blocked while recording");
+    io.AddKeyEvent(ImGuiKey_F6,true); frame();
+    require(!editor.recording() && editor.draft()[0]==0x75, "pressed key records Windows virtual-key value");
+    editor.record(1);
+    frame();
+    require(editor.recording() && editor.draft()[1]==0x08, "held key is not recorded for next binding");
+    io.AddKeyEvent(ImGuiKey_F6,false); frame();
+    io.AddKeyEvent(ImGuiKey_F7,true); frame();
+    require(!editor.recording() && editor.draft()[1]==0x76, "fresh key press updates selected binding");
+    io.AddKeyEvent(ImGuiKey_F7,false); frame();
+    editor.record(2);
+    io.AddKeyEvent(ImGuiKey_Escape,true); frame();
+    require(!editor.recording() && editor.draft()[2]==0x0D, "Escape cancels recording without changing binding");
+    io.AddKeyEvent(ImGuiKey_Escape,false); frame();
+    editor.record(3);
+    io.AddKeyEvent(ImGuiKey_Tab,true); frame();
+    require(!editor.recording() && editor.draft()[3]==0x09, "Tab records instead of moving UI focus");
+    io.AddKeyEvent(ImGuiKey_Tab,false); frame();
+    editor.record(4);
+    io.AddKeyEvent(ImGuiKey_Keypad3,true); frame();
+    require(editor.draft()[4]==0x63, "numpad key is recorded distinctly");
+    io.AddKeyEvent(ImGuiKey_Keypad3,false); frame();
+    editor.record(5);
+    io.AddFocusEvent(false); frame();
+    require(!editor.recording() && editor.draft()[5]==0x25, "focus loss cancels recording");
+    io.AddFocusEvent(true); frame();
+    editor.cancel();
+    require(ImGui::GetIO().ConfigFlags==flags, "cancel restores host keyboard navigation setting");
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    editor.open(astra::default_key_bindings);
+    editor.apply();
+    require((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard)!=0,
+        "apply preserves pre-existing host keyboard navigation");
+}
+
 static void interaction_tests()
 {
     ui_fixture f;
@@ -389,6 +486,6 @@ static void list_mouse_tests()
 }
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

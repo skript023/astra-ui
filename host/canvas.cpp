@@ -8,6 +8,15 @@
 
 namespace big
 {
+    static astra::key_bindings current_menu_keys()
+    {
+        const auto& settings = g_settings.window;
+        return {static_cast<int>(settings.open_key), static_cast<int>(settings.back_key),
+            static_cast<int>(settings.enter_key), static_cast<int>(settings.up_key),
+            static_cast<int>(settings.down_key), static_cast<int>(settings.left_key),
+            static_cast<int>(settings.right_key), static_cast<int>(settings.left_tab_key),
+            static_cast<int>(settings.right_tab_key)};
+    }
 
     std::vector<astra::control> canvas::window_controls(abstract_submenu* sub,
         std::vector<std::uint32_t> ancestors)
@@ -52,15 +61,31 @@ namespace big
         std::lock_guard lock(m_mutex);
         check_for_input_impl();
         handle_input_impl();
-        m_mouse_enabled = g_settings.window.layout == 1 || g_settings.window.mouse_active;
+        m_mouse_enabled = m_key_settings.active() || g_settings.window.layout == 1 || g_settings.window.mouse_active;
         m_capture_game = m_opened && m_mouse_enabled.load() &&
             (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard);
         if (!m_opened || active_history().empty()) return;
 
         const bool window_layout = g_settings.window.layout == 1;
         auto* sub = window_layout ? active_history().front() : active_history().back();
+        const auto previous_selection = sub->get_selected_option();
         sub->reset();
         sub->execute();
+        auto* settings_root = m_all_tabs.empty() ? active_history().front() : m_all_tabs.back().get();
+        if (sub == settings_root)
+        {
+            astra::control controls;
+            controls.id = "astra_menu_controls";
+            controls.label = "Menu controls";
+            controls.description = "Change the menu hotkey and list navigation buttons.";
+            controls.activate = [this] {
+                m_key_settings.open(current_menu_keys());
+                m_wait_keys_release = true;
+            };
+            sub->add_ui_option(std::move(controls));
+            if (previous_selection < sub->get_num_option())
+                sub->set_selected_option(previous_selection);
+        }
         astra::page page;
         page.id = std::to_string(sub->get_id());
         page.title = sub->get_name();
@@ -135,7 +160,7 @@ namespace big
         style.banner_height = m_header_height;
         style.row_height = m_option_height;
         style.footer = "Astra | Build 1.0.0";
-        style.mouse_enabled = m_mouse_enabled.load();
+        style.mouse_enabled = m_mouse_enabled.load() && !m_key_settings.active();
         bool open = m_opened;
         astra::event event = m_astra_canvas.draw(
             g_settings.window.layout == 1 ? astra::layout::window : astra::layout::list,
@@ -150,6 +175,20 @@ namespace big
             if (!window_layout) sub->set_selected_option(event.index);
             break;
         default: break;
+        }
+        if (!open) m_key_settings.cancel();
+        if (const auto keys = m_key_settings.draw(theme))
+        {
+            auto& settings = g_settings.window;
+            settings.open_key = static_cast<decltype(settings.open_key)>((*keys)[0]);
+            settings.back_key = static_cast<decltype(settings.back_key)>((*keys)[1]);
+            settings.enter_key = static_cast<decltype(settings.enter_key)>((*keys)[2]);
+            settings.up_key = static_cast<decltype(settings.up_key)>((*keys)[3]);
+            settings.down_key = static_cast<decltype(settings.down_key)>((*keys)[4]);
+            settings.left_key = static_cast<decltype(settings.left_key)>((*keys)[5]);
+            settings.right_key = static_cast<decltype(settings.right_key)>((*keys)[6]);
+            settings.left_tab_key = static_cast<decltype(settings.left_tab_key)>((*keys)[7]);
+            settings.right_tab_key = static_cast<decltype(settings.right_tab_key)>((*keys)[8]);
         }
     }
 
@@ -176,6 +215,14 @@ namespace big
 	{
 		reset_input();
 
+        if (!m_key_settings.active() && m_wait_keys_release)
+        {
+            for (auto key : current_menu_keys())
+                if (platform_is_key_pressed(key)) return;
+            m_wait_keys_release = false;
+            m_open_was_down = false;
+        }
+
 		const bool open_down = platform_is_key_pressed(g_settings.window.open_key) || platform_is_controller_pressed(XINPUT_GAMEPAD_BACK);
         m_open_key_pressed = open_down && !m_open_was_down;
         m_open_was_down = open_down;
@@ -191,6 +238,7 @@ namespace big
 
 	void canvas::handle_input_impl()
 	{
+        if (m_key_settings.active() || m_wait_keys_release) return;
 		static Timer openTimer(0ms);
 		openTimer.SetDelay(std::chrono::milliseconds(g_settings.window.m_open_delay));
 		if (m_open_key_pressed && openTimer.Update())

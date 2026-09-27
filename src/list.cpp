@@ -79,7 +79,6 @@ namespace astra
 		else
 		{
 			row(model.title, "ASTRA", false, 60);
-			draw->AddLine({x, y - 1}, {x + width, y - 1}, color(colors.accent), 2);
 		}
 		const auto tab_count = model.tabs.size();
 		if (tab_count)
@@ -120,7 +119,6 @@ namespace astra
 				text(label, tx + (tab_widths_[s] - ImGui::CalcTextSize(label.c_str()).x) * .5f, y + 14, color(a ? colors.selection_text : colors.text));
 				tx += tab_widths_[s];
 			}
-			//draw->AddLine({x, y + 64}, {x + width, y + 64}, color(colors.accent), 2);
 			y += 45;
 		}
 		auto selected = total ? std::min(model.selected_option, total - 1) : 0;
@@ -292,9 +290,12 @@ namespace astra
             draw->AddTriangleFilled({panel_x, arrow_y - 13.f}, {panel_x - 16.f, arrow_y}, {panel_x, arrow_y + 13.f}, color(colors.panel));
             draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {panel_x + 14, panel_y + 12}, color(colors.text), model.controls[selected].description.c_str(), nullptr, panel_w - 28.f);
         }
-        y = top + height + 14.f;
+        y = top + height;
         draw->AddRectFilled({x, y}, {x + width, y + 42.f}, color(colors.panel));
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {x + 14, y + 12}, color(colors.muted), settings.footer.c_str());
+        if (tab_count)
+            draw->AddLine({x, top}, {x + width, top}, color(colors.accent), 2.f);
+        draw->AddLine({x, y}, {x + width, y}, color(colors.accent), 2.f);
 		ImGui::End();
 		if (pending && result.kind == event_kind::option)
 			pending();

@@ -20,7 +20,7 @@ add_library(astra_core INTERFACE)
 add_library(astra::core ALIAS astra_core)
 target_include_directories(astra_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(astra_core INTERFACE cxx_std_17)
-add_library(astra STATIC src/theme.cpp src/widgets.cpp src/window.cpp src/list.cpp src/menu.cpp)
+add_library(astra STATIC src/theme.cpp src/widgets.cpp src/window.cpp src/list.cpp src/menu.cpp src/key_settings.cpp)
 add_library(astra::ui ALIAS astra)
 target_link_libraries(astra PUBLIC astra_core ${ASTRA_IMGUI_TARGET})
 

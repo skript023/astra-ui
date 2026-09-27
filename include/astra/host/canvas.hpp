@@ -9,6 +9,7 @@
 #include <astra/canvas.hpp>
 #include <astra/navigation.hpp>
 #include <unordered_set>
+#include <astra/key_settings.hpp>
 
 namespace big
 {
@@ -48,6 +49,8 @@ namespace big
 		astra::navigation<abstract_submenu*> m_navigation;
 		astra::canvas m_astra_canvas;
         std::unordered_set<abstract_submenu*> m_window_prepared;
+        astra::key_settings m_key_settings;
+        bool m_wait_keys_release = false;
 
 		static canvas& instance()
 		{
