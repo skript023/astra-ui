@@ -133,6 +133,11 @@ namespace astra
 		displayed_theme_.text = blend(displayed_theme_.text, target.text);
 		displayed_theme_.muted = blend(displayed_theme_.muted, target.muted);
 		displayed_theme_.accent = blend(displayed_theme_.accent, target.accent);
+		// The List highlights rows and tabs with selection/selection_text, so a
+		// theme change that skips them leaves the old highlight colour on screen.
+		displayed_theme_.selection = blend(displayed_theme_.selection, target.selection);
+		displayed_theme_.selection_text = blend(displayed_theme_.selection_text, target.selection_text);
+		displayed_theme_.alpha = target.alpha;
 		displayed_theme_.rounding = target.rounding;
 		displayed_theme_.spacing = target.spacing;
 		return displayed_theme_;

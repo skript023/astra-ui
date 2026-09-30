@@ -484,8 +484,61 @@ static void list_mouse_tests()
     io.AddMouseWheelEvent(0,-20); f.frame();
     require(f.event.kind == astra::event_kind::none, "empty list safely ignores wheel");
 }
+static bool draw_data_has_highlight(ImU32 first, ImU32 second)
+{
+    const auto* data = ImGui::GetDrawData();
+    if (!data) return false;
+    for (int i = 0; i < data->CmdListsCount; ++i)
+        for (int v = 0; v < data->CmdLists[i]->VtxBuffer.Size; ++v)
+        {
+            const auto col = data->CmdLists[i]->VtxBuffer[v].col;
+            if (col == first || col == second) return true;
+        }
+    return false;
+}
+// The List highlight must follow the active theme, including colours a host
+// only overrides at runtime (accent, selection text).
+static void theme_color_tests()
+{
+    ImGui::CreateContext();
+    auto& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = {1280,800};
+    io.DeltaTime = 1.f/60.f;
+    unsigned char* pixels; int w,h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
+    io.Fonts->SetTexID(1);
+
+    astra::menu view;
+    astra::page page;
+    page.id = "colors"; page.title = "Colors"; page.tabs = {"One","Two"};
+    astra::control row; row.id = "row"; row.label = "Row"; page.controls = {row};
+    astra::list_style list;
+
+    astra::theme first = astra::preset_theme(0);
+    first.selection = {1.f,0.f,0.f,1.f};
+    first.selection_text = {0.f,0.f,0.f,1.f};
+    astra::theme second = astra::preset_theme(0);
+    second.selection = {0.f,0.f,1.f,1.f};
+    second.selection_text = {0.f,0.f,0.f,1.f};
+
+    const auto render = [&](const astra::theme& colors,int frames)
+    {
+        for (int i=0;i<frames;++i)
+        {
+            ImGui::NewFrame();
+            view.draw_list(page,colors,list);
+            ImGui::Render();
+        }
+    };
+    render(first,4);
+    require(draw_data_has_highlight(IM_COL32(255,0,0,255),0), "highlight uses the initial theme colour");
+    render(second,90);
+    require(draw_data_has_highlight(IM_COL32(0,0,255,255),0), "highlight follows a runtime theme colour change");
+    ImGui::DestroyContext();
+}
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

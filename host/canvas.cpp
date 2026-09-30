@@ -151,6 +151,10 @@ namespace big
             theme.text = {text.r / 255.f, text.g / 255.f, text.b / 255.f, 1.f};
             theme.muted = {theme.text.x, theme.text.y, theme.text.z, .65f};
             theme.accent = {accent.r / 255.f, accent.g / 255.f, accent.b / 255.f, ui_alpha};
+            // List paints selected rows and the active tab with selection/selection_text;
+            // preset_theme(3) only supplies defaults, so the custom accent must drive them.
+            theme.selection = theme.accent;
+            theme.selection_text = theme.background;
         }
         astra::list_style style;
         style.position = {g_settings.window.m_pos.x, g_settings.window.m_pos.y};

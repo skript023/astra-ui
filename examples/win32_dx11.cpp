@@ -59,7 +59,8 @@ int main(int argc,char** argv)
     {
         const bool list_snapshot=argc > 2 && std::string(argv[1]) == "--snapshot-list";
         const bool controls_snapshot=argc > 2 && std::string(argv[1]) == "--snapshot-controls";
-        const bool snapshot=list_snapshot || controls_snapshot || (argc > 2 && std::string(argv[1]) == "--snapshot");
+        const bool custom_snapshot=argc > 2 && std::string(argv[1]) == "--snapshot-custom";
+        const bool snapshot=list_snapshot || controls_snapshot || custom_snapshot || (argc > 2 && std::string(argv[1]) == "--snapshot");
         WNDCLASSW wc{}; wc.lpfnWndProc=window_proc; wc.hInstance=GetModuleHandleW(nullptr); wc.lpszClassName=L"AstraDemo";
         RegisterClassW(&wc);
         HWND window=CreateWindowW(wc.lpszClassName,L"Astra - standalone demo",WS_OVERLAPPEDWINDOW,
@@ -100,6 +101,10 @@ int main(int argc,char** argv)
         double strength=65;
         int difficulty=1, theme=4, layout=list_snapshot ? 0 : 1, actions=0;
         std::size_t selected_option=0;
+        astra::theme custom_theme=astra::preset_theme(0);
+        // Snapshot the Custom path with an existing palette so the output can be compared
+        // against --snapshot: identical files prove the host palette is what reaches the screen.
+        if (custom_snapshot) { theme=3; custom_theme=astra::preset_theme(4); }
         int frame=0;
         while (running)
         {
@@ -114,6 +119,8 @@ int main(int argc,char** argv)
                 resize_width=resize_height=0; create_target();
             }
             ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
+            // Custom keeps a host-editable palette; the library only reads what the host passes.
+            const astra::theme colors=theme==3 ? custom_theme : astra::preset_theme(theme);
             std::array<bool,9> pressed{}, repeated{};
             for (std::size_t i=0; i<keys.size(); ++i)
             {
@@ -217,7 +224,7 @@ int main(int argc,char** argv)
                     page.breadcrumbs={page.tabs[nav.selected_tab()]};
                 }
                 ImGui::SetNextWindowPos({50,20},ImGuiCond_FirstUseEver);
-                const auto event=menu.draw_window("Astra",page,open,astra::preset_theme(theme));
+                const auto event=menu.draw_window("Astra",page,open,colors);
                 if (event.kind==astra::event_kind::tab) nav.select_tab(event.index);
                 if (event.kind==astra::event_kind::back) nav.back();
                 if (event.kind==astra::event_kind::breadcrumb) nav.to_depth(event.index);
@@ -226,25 +233,46 @@ int main(int argc,char** argv)
             {
                 astra::list_style list_style;
                 list_style.mouse_enabled=!key_settings.active();
-                const auto event=menu.draw_list(page,astra::preset_theme(theme),list_style);
+                const auto event=menu.draw_list(page,colors,list_style);
                 if (event.kind==astra::event_kind::tab) { nav.select_tab(event.index); selected_option=0; }
                 if (event.kind==astra::event_kind::back) nav.back();
                 if (event.kind==astra::event_kind::option) selected_option=event.index;
-                if (!snapshot) {
-                    if (ImGui::Begin("Demo controls")) { if (ImGui::Button("Return to Window")) layout=1; }
-                    ImGui::End();
-                }
             }
-            if (!open && !snapshot)
+            if (!snapshot)
             {
+                ImGui::SetNextWindowPos({520,40},ImGuiCond_FirstUseEver);
                 if (ImGui::Begin("Demo controls"))
                 {
-                    ImGui::Text("Press %s to open the menu.",astra::menu_key_name(keys[0]).c_str());
-                    if (ImGui::Button("Open menu")) open=true;
+                    if (layout==0 && ImGui::Button("Return to Window")) layout=1;
+                    if (!open)
+                    {
+                        ImGui::Text("Press %s to open the menu.",astra::menu_key_name(keys[0]).c_str());
+                        if (ImGui::Button("Open menu")) open=true;
+                    }
+                    ImGui::SeparatorText("Custom theme");
+                    ImGui::TextDisabled("Used while Color theme is Custom.");
+                    bool palette_edited=false;
+                    const auto palette=[&](const char* label,ImVec4& value) {
+                        palette_edited |= ImGui::ColorEdit4(label,&value.x);
+                    };
+                    palette("Accent",custom_theme.accent);
+                    palette("Background",custom_theme.background);
+                    palette("Panel",custom_theme.panel);
+                    palette("Field",custom_theme.field);
+                    palette("Text",custom_theme.text);
+                    palette("Muted",custom_theme.muted);
+                    palette("Selection",custom_theme.selection);
+                    palette("Selection text",custom_theme.selection_text);
+                    if (palette_edited)
+                    {
+                        // Same contract as the game adapter: switch to Custom and snap instead of animating.
+                        theme=3;
+                        menu.reset_theme();
+                    }
                 }
                 ImGui::End();
             }
-            if (const auto updated=key_settings.draw(astra::preset_theme(theme)))
+            if (const auto updated=key_settings.draw(colors))
             {
                 keys=*updated;
                 for (std::size_t i=0; i<keys.size(); ++i)
