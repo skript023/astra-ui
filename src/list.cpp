@@ -247,6 +247,10 @@ namespace astra
 				hitbox(row_id + "/next", {right_edge - arrow, local_y}, {width - right_edge + arrow, rh}, [&] { step(1); });
 			}
 			else hitbox(row_id, {0, local_y}, {width, rh}, activate);
+			// Only a moving cursor takes the selection, so a cursor resting on the list never undoes keyboard navigation.
+			const bool cursor_moved = io.MouseDelta.x != 0.f || io.MouseDelta.y != 0.f;
+			if (!active && cursor_moved && result.kind == event_kind::none && !ImGui::IsAnyItemActive() && hovered({x, y}, {x + width, y + rh}))
+				select();
 			auto ink = color(active ? colors.selection_text : colors.text);
 			text(c.label, x + 14, y + (rh - ImGui::GetFontSize()) * .5f, ink);
 			if (!right.empty() && !toggle && !slider)

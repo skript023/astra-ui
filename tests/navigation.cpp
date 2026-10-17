@@ -398,6 +398,8 @@ static void list_mouse_tests()
     require(value == 100 && !checked, "slider drag outside captures and clamps maximum");
     io.AddMousePosEvent(left - 100, top + 200); f.frame();
     require(value == 0, "slider drag clamps minimum");
+    io.AddMousePosEvent(left - 100, top + 18); f.frame();
+    require(f.page.selected_option == 1, "slider drag over another row keeps its row selected");
     io.AddMouseButtonEvent(0,false); f.frame();
     f.click({83 + 420 - 19,top + 54});
     require(checked, "checkbox remains separate from slider");
@@ -421,6 +423,13 @@ static void list_mouse_tests()
     for (int i = 0; i < 12; ++i) {
         auto item = action; item.id = std::to_string(i); f.page.controls.push_back(item);
     }
+    f.page.selected_option = 0;
+    f.frame(); f.frame();
+    io.AddMousePosEvent(100,top + 54); f.frame();
+    require(f.page.selected_option == 1 && actions == 1, "moving cursor selects hovered row without activation");
+    f.page.selected_option = 2;
+    f.frame(); f.frame();
+    require(f.page.selected_option == 2, "resting cursor leaves keyboard selection");
     f.page.selected_option = 0;
     f.frame(); f.frame();
     io.AddMousePosEvent(100,top + 18); f.frame();
