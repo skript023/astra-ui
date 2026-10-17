@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <d3d11.h>
+#include <shlwapi.h>
+#include <wincodec.h>
 #include <wrl/client.h>
 #include <imgui.h>
 #include <imgui_impl_win32.h>
@@ -9,10 +11,12 @@
 #include <astra/menu.hpp>
 #include <astra/navigation.hpp>
 #include <astra/key_settings.hpp>
+#include <astra/banners.hpp>
 #include <fstream>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND,UINT,WPARAM,LPARAM);
@@ -26,6 +30,29 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
     return DefWindowProcW(window,message,wparam,lparam);
 }
 static void checked(HRESULT hr) { if (FAILED(hr)) throw std::runtime_error("DX11 operation failed"); }
+// Decodes one built-in banner (PNG or JPEG) with WIC, the way a game host would with its own decoder.
+static ComPtr<ID3D11ShaderResourceView> upload_banner(IWICImagingFactory* wic, ID3D11Device* device, const astra::banner& banner)
+{
+    ComPtr<IStream> stream;
+    stream.Attach(SHCreateMemStream(banner.image.data(),static_cast<UINT>(banner.image.size())));
+    if (!stream) throw std::runtime_error("Cannot read banner image");
+    ComPtr<IWICBitmapDecoder> decoder; ComPtr<IWICBitmapFrameDecode> frame; ComPtr<IWICFormatConverter> rgba;
+    checked(wic->CreateDecoderFromStream(stream.Get(),nullptr,WICDecodeMetadataCacheOnDemand,&decoder));
+    checked(decoder->GetFrame(0,&frame));
+    checked(wic->CreateFormatConverter(&rgba));
+    checked(rgba->Initialize(frame.Get(),GUID_WICPixelFormat32bppRGBA,WICBitmapDitherTypeNone,nullptr,0,WICBitmapPaletteTypeCustom));
+    UINT width{}, height{}; checked(rgba->GetSize(&width,&height));
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(width)*height*4);
+    checked(rgba->CopyPixels(nullptr,width*4,static_cast<UINT>(pixels.size()),pixels.data()));
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width=width; desc.Height=height; desc.MipLevels=1; desc.ArraySize=1; desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count=1; desc.Usage=D3D11_USAGE_IMMUTABLE; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    const D3D11_SUBRESOURCE_DATA data{pixels.data(),width*4,0};
+    ComPtr<ID3D11Texture2D> texture; ComPtr<ID3D11ShaderResourceView> view;
+    checked(device->CreateTexture2D(&desc,&data,&texture));
+    checked(device->CreateShaderResourceView(texture.Get(),nullptr,&view));
+    return view;
+}
 static void save_bitmap(ID3D11Device* device, ID3D11DeviceContext* context, IDXGISwapChain* swapchain, const char* path)
 {
     ComPtr<ID3D11Texture2D> back, staging;
@@ -89,6 +116,16 @@ int main(int argc,char** argv)
             ImGui::GetIO().Fonts->AddFontDefault(&font);
         if (!ImGui_ImplWin32_Init(window) || !ImGui_ImplDX11_Init(device.Get(),context.Get()))
             throw std::runtime_error("Cannot initialize ImGui");
+        checked(CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED));
+        ComPtr<IWICImagingFactory> wic;
+        checked(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&wic)));
+        std::vector<ComPtr<ID3D11ShaderResourceView>> banners;
+        std::vector<std::string> banner_names;
+        for (const auto& banner : astra::banners())
+        {
+            banners.push_back(upload_banner(wic.Get(),device.Get(),banner));
+            banner_names.emplace_back(banner.name);
+        }
         if (!snapshot) ShowWindow(window,SW_SHOWDEFAULT);
         astra::menu menu;
         astra::navigation<int> nav; nav.add_tab(0); nav.add_tab(1); nav.add_tab(2);
@@ -99,7 +136,7 @@ int main(int argc,char** argv)
         std::array<bool,9> was_down{};
         std::array<double,9> repeat_at{};
         double strength=65;
-        int difficulty=1, theme=4, layout=list_snapshot ? 0 : 1, actions=0;
+        int difficulty=1, theme=4, layout=list_snapshot ? 0 : 1, actions=0, banner=0;
         std::size_t selected_option=0;
         astra::theme custom_theme=astra::preset_theme(0);
         // Snapshot the Custom path with an existing palette so the output can be compared
@@ -148,6 +185,9 @@ int main(int argc,char** argv)
                 mode.choices={"List","Window"}; mode.choice=layout; mode.set_choice=[&](int n){layout=n;};
                 auto& palette=add("theme","Color theme",astra::control_kind::choice);
                 palette.choices={"Emerald","Violet","Ocean","Custom","Studio"}; palette.choice=theme; palette.set_choice=[&](int n){theme=n;};
+                auto& header=add("banner","Banner",astra::control_kind::choice);
+                header.choices=banner_names; header.choice=banner; header.set_choice=[&](int n){banner=n;};
+                header.description="Change the List header banner.";
                 auto& controls=add("menu_controls","Menu controls",astra::control_kind::action);
                 controls.description="Change the menu hotkey and list navigation buttons.";
                 controls.activate=[&] { key_settings.open(keys); };
@@ -233,6 +273,7 @@ int main(int argc,char** argv)
             {
                 astra::list_style list_style;
                 list_style.mouse_enabled=!key_settings.active();
+                if (!banners.empty()) list_style.banner=reinterpret_cast<ImTextureID>(banners[banner].Get());
                 const auto event=menu.draw_list(page,colors,list_style);
                 if (event.kind==astra::event_kind::tab) { nav.select_tab(event.index); selected_option=0; }
                 if (event.kind==astra::event_kind::back) nav.back();
@@ -289,6 +330,7 @@ int main(int argc,char** argv)
             swapchain->Present(snapshot ? 0 : 1,0);
         }
         ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
+        banners.clear(); wic.Reset(); CoUninitialize();
         target.Reset(); swapchain.Reset(); context.Reset(); device.Reset();
         DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
         return 0;

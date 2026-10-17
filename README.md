@@ -174,7 +174,7 @@ ctest --test-dir build --output-on-failure
 ./build/astra_demo.exe
 ```
 
-The demo uses DX11 WARP and sample controls; it has no game dependency. It uses the Windows Segoe UI font, falling back to ImGui's font. **Demo controls** edits the Custom palette and selects Custom as soon as a colour changes, so the same hand-off the game adapter performs can be tried without a game. Generate a preview without showing a window:
+The demo uses DX11 WARP and sample controls; it has no game dependency. It uses the Windows Segoe UI font, falling back to ImGui's font. **Demo controls** edits the Custom palette and selects Custom as soon as a colour changes, so the same hand-off the game adapter performs can be tried without a game. The List layout shows the built-in banners the way the game menus do: **Settings > Banner** picks one, and the demo decodes them with Windows Imaging Component, standing in for a game's own decoder. Generate a preview without showing a window:
 
 ```powershell
 ./build/astra_demo.exe --snapshot preview.bmp
