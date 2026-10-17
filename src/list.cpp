@@ -272,9 +272,13 @@ namespace astra
 			{
                 double mn = std::min(c.minimum, c.maximum), mx = std::max(c.minimum, c.maximum);
 				float q = mx > mn ? float(std::clamp((c.value - mn) / (mx - mn), 0.0, 1.0)) : 0, kn = l + (r - l) * q;
-				draw->AddRectFilled({l, y + rh * .5f - 2}, {r, y + rh * .5f + 2}, color(colors.muted), 2);
-				draw->AddRectFilled({l, y + rh * .5f - 2}, {kn, y + rh * .5f + 2}, color(colors.accent), 2);
-				draw->AddCircleFilled({kn, y + rh * .5f}, 6, color(colors.accent), 20);
+				// On the highlighted row the slider takes the highlight's text colour, like the checkbox, since the
+				// highlight is often the accent itself.
+				const auto track = active ? ImVec4{colors.selection_text.x, colors.selection_text.y, colors.selection_text.z, colors.selection_text.w * .35f} : colors.muted;
+				const auto fill = active ? colors.selection_text : colors.accent;
+				draw->AddRectFilled({l, y + rh * .5f - 2}, {r, y + rh * .5f + 2}, color(track), 2);
+				draw->AddRectFilled({l, y + rh * .5f - 2}, {kn, y + rh * .5f + 2}, color(fill), 2);
+				draw->AddCircleFilled({kn, y + rh * .5f}, 6, color(fill), 20);
 			}
 			y += rh;
 		}

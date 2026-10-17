@@ -42,8 +42,9 @@ namespace astra
 			t.text = {0.12f, 0.12f, 0.18f, 1};
 			t.muted = {0.46f, 0.48f, 0.55f, 1};
 			t.accent = {0.259f, 0.165f, 0.835f, 1};
-			            t.selection = {1.f, 1.f, 1.f, 1.f};
-			            t.selection_text = t.text;
+			// A white highlight vanished against the white List rows.
+			t.selection = t.accent;
+			t.selection_text = t.panel;
 			t.rounding = 16;
 		}
 		if (index == 5)
