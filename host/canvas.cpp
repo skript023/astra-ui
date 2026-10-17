@@ -62,8 +62,11 @@ namespace big
         check_for_input_impl();
         handle_input_impl();
         m_mouse_enabled = m_key_settings.active() || g_settings.window.layout == 1 || g_settings.window.mouse_active;
-        m_capture_game = m_opened && m_mouse_enabled.load() &&
-            (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard);
+        const bool menu_input = m_opened && m_mouse_enabled.load();
+        // WantCaptureKeyboard is also set while a mouse button holds a widget, so only typing and the key
+        // editor take the keyboard; the player keeps walking while clicking the menu.
+        m_capture_mouse = menu_input && ImGui::GetIO().WantCaptureMouse;
+        m_capture_keyboard = menu_input && (ImGui::GetIO().WantTextInput || m_key_settings.active());
         if (!m_opened || active_history().empty()) return;
 
         const bool window_layout = g_settings.window.layout == 1;
@@ -196,14 +199,30 @@ namespace big
         }
     }
 
-    bool canvas::captures_message(UINT msg)
+    std::optional<LRESULT> canvas::block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     {
-        if (!uses_mouse() || !ImGui::GetCurrentContext()) return false;
-        const auto& io = ImGui::GetIO();
-        if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) return io.WantCaptureMouse;
-        if (msg >= WM_KEYFIRST && msg <= WM_KEYLAST) return io.WantCaptureKeyboard;
-        if (msg == WM_INPUT) return io.WantCaptureMouse || io.WantCaptureKeyboard;
-        return false;
+        const bool mouse = captures_game_mouse(), keyboard = captures_game_keyboard();
+        if (!mouse && !keyboard) return std::nullopt;
+        // A release always reaches the game, so a key held before the menu took the keyboard never sticks.
+        if (msg >= WM_KEYFIRST && msg <= WM_KEYLAST)
+            return keyboard && msg != WM_KEYUP && msg != WM_SYSKEYUP ? std::optional<LRESULT>(0) : std::nullopt;
+        if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST)
+            return mouse ? std::optional<LRESULT>(0) : std::nullopt;
+        // Unity reads the wheel from pointer messages; DefWindowProc turns them into the WM_MOUSEWHEEL ImGui scrolls with.
+        if (msg == WM_POINTERWHEEL || msg == WM_POINTERHWHEEL)
+            return mouse ? std::optional<LRESULT>(DefWindowProcW(hwnd, msg, wparam, lparam)) : std::nullopt;
+        if (msg != WM_INPUT) return std::nullopt;
+
+        RAWINPUT raw{};
+        UINT size = sizeof(raw);
+        bool held = mouse || keyboard;
+        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) != static_cast<UINT>(-1))
+        {
+            if (raw.header.dwType == RIM_TYPEMOUSE) held = mouse;
+            if (raw.header.dwType == RIM_TYPEKEYBOARD) held = keyboard && !(raw.data.keyboard.Flags & RI_KEY_BREAK);
+        }
+        // Held raw input still goes to DefWindowProc, which frees it.
+        return held ? std::optional<LRESULT>(DefWindowProcW(hwnd, msg, wparam, lparam)) : std::nullopt;
     }
 
 	void canvas::game_tick()

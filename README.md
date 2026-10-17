@@ -99,6 +99,27 @@ Callbacks and captured objects must remain valid until the drawing call returns.
 
 The library never creates or destroys the host's ImGui context. Themes restore the host's complete ImGui style after drawing. View search and theme animation state are per `menu` instance.
 
+## Game input
+
+`host/canvas` decides which input the open menu keeps from the game, so every game host behaves the same way. Call `canvas::block_game_message` first in the game's window procedure, after ImGui has seen the message:
+
+```cpp
+LRESULT hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    imgui_wndproc(hwnd, msg, wparam, lparam);
+    if (auto result = big::canvas::block_game_message(hwnd, msg, wparam, lparam))
+        return *result;
+    return CallWindowProcW(original_wndproc, hwnd, msg, wparam, lparam);
+}
+```
+
+While the cursor is over the menu, or a mouse button holds one of its widgets, the game loses mouse messages, raw mouse input, and pointer wheel messages. Unity reads the wheel from `WM_POINTERWHEEL`; the menu passes those to `DefWindowProc`, which turns them into the `WM_MOUSEWHEEL` ImGui scrolls with. The keyboard is held back only while a menu text field is typing or the key editor is open, so the player keeps walking while clicking the menu. Key releases always reach the game, so a key held before the menu took the keyboard never sticks.
+
+Engines also read input outside the window procedure. `canvas::captures_game_mouse()`, `captures_game_keyboard()`, and `captures_game_input()` (either one) report the same state for those hooks. The Valheim host, for example, stops mouse look in `PlayerController.TakeInput` on `captures_game_input()`, stops movement on `captures_game_keyboard()`, and drops attack and block in `Player.SetControls` on `captures_game_mouse()`.
+
+`block_game_message` replaces `captures_message(msg)`, which held the keyboard whenever ImGui held a widget and swallowed all raw input while the cursor was over the menu.
+
+
 ## Theme colours
 
 `astra::theme` carries the palette plus the List highlight pair. `preset_theme` index 0 is Emerald, 1 Violet, 2 Ocean, 3 Custom (a palette the host supplies), 4 Studio, and 5 dark navy; index 3 has no built-in look, so it equals the Emerald base until the host overrides it. `theme.selection` defaults to the accent and `theme.selection_text` to the background.

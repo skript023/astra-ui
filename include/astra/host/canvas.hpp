@@ -8,6 +8,7 @@
 #include <astra/host/menu/tabs_menu.hpp>
 #include <astra/canvas.hpp>
 #include <astra/navigation.hpp>
+#include <optional>
 #include <unordered_set>
 #include <astra/key_settings.hpp>
 
@@ -73,8 +74,13 @@ namespace big
 		static void switch_to_tabmenu(std::uint32_t id) { instance().switch_to_tabmenu_impl(id); }
 		static bool is_opened() { return instance().m_opened; }
         static bool uses_mouse() { return is_opened() && instance().m_mouse_enabled.load(); }
-        static bool captures_game_input() { return is_opened() && instance().m_capture_game.load(); }
-        static bool captures_message(UINT msg);
+        // The cursor is over the menu, or a mouse button holds one of its widgets.
+        static bool captures_game_mouse() { return is_opened() && instance().m_capture_mouse.load(); }
+        // A menu text field is typing, or the key editor is open.
+        static bool captures_game_keyboard() { return is_opened() && instance().m_capture_keyboard.load(); }
+        static bool captures_game_input() { return captures_game_mouse() || captures_game_keyboard(); }
+        // Call first in the game's window procedure; a value means return it instead of passing the message on.
+        static std::optional<LRESULT> block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 		static void draw_line(float x1, float y1, float x2, float y2, Color color, float thickness) { instance().draw_line_impl(x1, y1, x2, y2, color, thickness); }
 		static void draw_stroke_text(float x, float y, Color color, std::string_view str) { instance().draw_stroke_text_impl(x, y, color, str); }
 		static void draw_filled_rect(float x, float y, float w, float h, Color color) { instance().draw_filled_rect_impl(x, y, w, h, color); }
@@ -175,7 +181,8 @@ namespace big
 
 		std::atomic_bool m_opened{true};
         std::atomic_bool m_mouse_enabled{false};
-        std::atomic_bool m_capture_game{false};
+        std::atomic_bool m_capture_mouse{false};
+        std::atomic_bool m_capture_keyboard{false};
 
         float m_header_height = 100.f;
         float m_option_height = 45.f;
