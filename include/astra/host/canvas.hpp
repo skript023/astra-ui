@@ -14,6 +14,8 @@
 
 namespace big
 {
+	class regular_submenu;
+
 	class Timer
 	{
 	public:
@@ -67,8 +69,11 @@ namespace big
 		static void add_submenu(TArgs&&... args) { instance().add_submenu_impl<SubmenuType>(std::forward<TArgs>(args)...); }
 		template <typename TabmenuType, typename... Args>
 		static void add_tab(Args&&... args) { instance().add_tab_impl<TabmenuType>(std::forward<Args>(args)...); }
-
-
+		// The Settings tab every game shares, plus its Input delays submenu; game_options adds the game's own rows last.
+		static void add_settings_tab(std::uint32_t id, std::uint32_t input_id, std::function<void(regular_submenu*)> game_options = {})
+		{
+			instance().add_settings_tab_impl(id, input_id, std::move(game_options));
+		}
 
 		static void switch_to_submenu(std::uint32_t id) { instance().switch_to_submenu_impl(id); }
 		static void switch_to_tabmenu(std::uint32_t id) { instance().switch_to_tabmenu_impl(id); }
@@ -122,6 +127,8 @@ namespace big
 
 			m_navigation.add_tab(m_all_tabs.back().get());
 		}
+
+		void add_settings_tab_impl(std::uint32_t id, std::uint32_t input_id, std::function<void(regular_submenu*)> game_options);
 
 		void switch_to_submenu_impl(std::uint32_t id)
 		{

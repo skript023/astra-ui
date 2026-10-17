@@ -1,8 +1,11 @@
 #pragma once
 #include <imgui.h>
+#include <array>
 
 namespace astra
 {
+	// Names for preset_theme indexes. Hosts save the index, so a new preset goes at the end.
+	inline constexpr std::array<const char*, 6> preset_theme_names{"Emerald", "Violet", "Ocean", "Custom", "Studio", "Snow"};
 	struct theme
 	{
 		ImVec4 background, panel, field, text, muted, accent;

@@ -1,4 +1,8 @@
 #include <astra/host/canvas.hpp>
+#include <astra/host/menu/bool_option.hpp>
+#include <astra/host/menu/choose_option.hpp>
+#include <astra/host/menu/number_option.hpp>
+#include <astra/host/menu/reguler_submenu.hpp>
 #include <astra/host/menu/sub_option.hpp>
 #include "renderer.hpp"
 #include "pointers.hpp"
@@ -56,6 +60,55 @@ namespace big
         return controls;
     }
 
+    void canvas::add_settings_tab_impl(std::uint32_t id, std::uint32_t input_id, std::function<void(regular_submenu*)> game_options)
+    {
+        add_tab_impl<regular_submenu>("Settings", id, [this, input_id, game_options = std::move(game_options)](regular_submenu* sub) {
+            static constexpr std::array<const char*, 2> layouts{"List", "Window"};
+            auto& window = g_settings.window;
+            sub->add_option<choose_option<const char*, int>>("Menu Layout", "Switch between keyboard list and clickable window.", &layouts, &window.layout, true);
+            sub->add_option<choose_option<const char*, int>>("Theme", "Shared palette for both menu layouts.", &astra::preset_theme_names, &window.theme, true);
+            if (!g_gui.m_banner_names.empty())
+                sub->add_option<choose_option<const char*, int>>("Banner", "Change menu header banner.", &g_gui.m_banner_names, &window.banner, true, [] { g_gui.update_banner(); });
+            sub->add_option<number_option<float>>("Transparency", "Opacity of the List and Window UI.", &window.transparency, 0.15f, 1.f, 0.05f, 2);
+            sub->add_option<number_option<std::uint8_t>>("Accent Red", "Used by the Custom theme.", &window.m_tab_selected_color.r, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Accent Green", "Used by the Custom theme.", &window.m_tab_selected_color.g, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Accent Blue", "Used by the Custom theme.", &window.m_tab_selected_color.b, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Background R", "Custom theme background red channel.", &window.custom_background.r, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Background G", "Custom theme background green channel.", &window.custom_background.g, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Background B", "Custom theme background blue channel.", &window.custom_background.b, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Panel R", "Custom theme panel red channel.", &window.custom_panel.r, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Panel G", "Custom theme panel green channel.", &window.custom_panel.g, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Panel B", "Custom theme panel blue channel.", &window.custom_panel.b, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Text R", "Custom theme text red channel.", &window.custom_text.r, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Text G", "Custom theme text green channel.", &window.custom_text.g, 0, 255);
+            sub->add_option<number_option<std::uint8_t>>("Custom Text B", "Custom theme text blue channel.", &window.custom_text.b, 0, 255);
+            sub->add_option<sub_option>("Input", nullptr, input_id);
+            astra::control controls;
+            controls.id = "astra_menu_controls";
+            controls.label = "Menu controls";
+            controls.description = "Change the menu hotkey and list navigation buttons.";
+            controls.activate = [this] {
+                m_key_settings.open(current_menu_keys());
+                m_wait_keys_release = true;
+            };
+            sub->add_ui_option(std::move(controls));
+            sub->add_option<number_option<float>>("List X Position", nullptr, &window.m_pos.x, 0.f, 2000.f, 25.f, 2);
+            sub->add_option<number_option<float>>("List Y Position", nullptr, &window.m_pos.y, 0.f, 2000.f, 25.f, 2);
+            sub->add_option<number_option<float>>("List Width", nullptr, &window.m_width, 0.f, 1000.f, 50.f, 2);
+            sub->add_option<bool_option<bool>>("Draw Mouse", nullptr, &window.mouse_active);
+            if (game_options)
+                game_options(sub);
+        });
+        add_submenu_impl<regular_submenu>("Input", input_id, [](regular_submenu* sub) {
+            auto& window = g_settings.window;
+            sub->add_option<number_option<std::int32_t>>("Open Delay", nullptr, &window.m_open_delay, 10, 1000, 10, 0);
+            sub->add_option<number_option<std::int32_t>>("Back Delay", nullptr, &window.m_back_delay, 10, 1000, 10, 0);
+            sub->add_option<number_option<std::int32_t>>("Enter Delay", nullptr, &window.m_enter_delay, 10, 1000, 10, 0);
+            sub->add_option<number_option<std::int32_t>>("Vertical Delay", nullptr, &window.m_vectical_delay, 10, 1000, 10, 0);
+            sub->add_option<number_option<std::int32_t>>("Horizontal Delay", nullptr, &window.m_horizontal_delay, 10, 1000, 10, 0);
+        });
+    }
+
     void canvas::tick_impl()
     {
         std::lock_guard lock(m_mutex);
@@ -71,24 +124,8 @@ namespace big
 
         const bool window_layout = g_settings.window.layout == 1;
         auto* sub = window_layout ? active_history().front() : active_history().back();
-        const auto previous_selection = sub->get_selected_option();
         sub->reset();
         sub->execute();
-        auto* settings_root = m_all_tabs.empty() ? active_history().front() : m_all_tabs.back().get();
-        if (sub == settings_root)
-        {
-            astra::control controls;
-            controls.id = "astra_menu_controls";
-            controls.label = "Menu controls";
-            controls.description = "Change the menu hotkey and list navigation buttons.";
-            controls.activate = [this] {
-                m_key_settings.open(current_menu_keys());
-                m_wait_keys_release = true;
-            };
-            sub->add_ui_option(std::move(controls));
-            if (previous_selection < sub->get_num_option())
-                sub->set_selected_option(previous_selection);
-        }
         astra::page page;
         page.id = std::to_string(sub->get_id());
         page.title = sub->get_name();

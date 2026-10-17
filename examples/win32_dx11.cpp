@@ -184,7 +184,7 @@ int main(int argc,char** argv)
                 auto& mode=add("layout","Menu layout",astra::control_kind::choice);
                 mode.choices={"List","Window"}; mode.choice=layout; mode.set_choice=[&](int n){layout=n;};
                 auto& palette=add("theme","Color theme",astra::control_kind::choice);
-                palette.choices={"Emerald","Violet","Ocean","Custom","Studio"}; palette.choice=theme; palette.set_choice=[&](int n){theme=n;};
+                palette.choices.assign(astra::preset_theme_names.begin(),astra::preset_theme_names.end()); palette.choice=theme; palette.set_choice=[&](int n){theme=n;};
                 auto& header=add("banner","Banner",astra::control_kind::choice);
                 header.choices=banner_names; header.choice=banner; header.set_choice=[&](int n){banner=n;};
                 header.description="Change the List header banner.";

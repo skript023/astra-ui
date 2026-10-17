@@ -545,7 +545,12 @@ static void theme_color_tests()
     require(draw_data_has_highlight(IM_COL32(255,0,0,255),0), "highlight uses the initial theme colour");
     render(second,90);
     require(draw_data_has_highlight(IM_COL32(0,0,255,255),0), "highlight follows a runtime theme colour change");
-    for (int index=0; index<=5; ++index)
+    // Hosts save the theme as an index, so each name keeps its preset.
+    const char* saved[] = {"Emerald","Violet","Ocean","Custom","Studio","Snow"};
+    require(astra::preset_theme_names.size() >= std::size(saved), "every saved theme index still exists");
+    for (std::size_t i = 0; i < std::size(saved); ++i)
+        require(std::string_view(astra::preset_theme_names[i]) == saved[i], "saved theme indexes keep their name");
+    for (int index=0; index<static_cast<int>(astra::preset_theme_names.size()); ++index)
     {
         const auto preset = astra::preset_theme(index);
         require(astra::pack_color(preset.selection) != astra::pack_color(preset.panel), "List highlight differs from the List row colour");

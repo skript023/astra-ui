@@ -131,9 +131,22 @@ for (const auto& banner : astra::banners())
 
 Hosts save the chosen banner as an index into this list, so the order in `assets/banners/banners.txt` is fixed and a new banner goes at the end. To add one, put the image in `assets/banners` and append a line with its file name and display name. The build turns the images into byte arrays (`cmake/embed_banners.cmake`), and only hosts that link `astra::banners` compile them.
 
+## Settings page
+
+`canvas::add_settings_tab` registers the Settings tab every game shares, so a new menu setting is added once here instead of in each game. Rows only the game knows how to do come from the callback:
+
+```cpp
+canvas::add_settings_tab(SubmenuSettings, SubmenuSettingsInput, [](regular_submenu* sub) {
+    sub->add_option<reguler_option>("Unload", nullptr, [] { g_running = false; });
+    sub->add_option<reguler_option>("Exit", nullptr, [] { exit(0); });
+});
+```
+
+The tab holds Menu Layout, Theme, Banner, Transparency, the Custom theme colours, Input (the navigation delays, registered as a submenu under the second id), Menu controls, List position and width, and Draw Mouse, followed by the callback's rows. Banner appears once the host has filled `g_gui.m_banner_names`, and picking one calls `g_gui.update_banner()`.
+
 ## Theme colours
 
-`astra::theme` carries the palette plus the List highlight pair. `preset_theme` index 0 is Emerald, 1 Violet, 2 Ocean, 3 Custom (a palette the host supplies), 4 Studio, and 5 dark navy; index 3 has no built-in look, so it equals the Emerald base until the host overrides it. `theme.selection` defaults to the accent and `theme.selection_text` to the background.
+`astra::theme` carries the palette plus the List highlight pair. `preset_theme` index 0 is Emerald, 1 Violet, 2 Ocean, 3 Custom (a palette the host supplies), 4 Studio, and 5 Snow (dark navy with a white highlight); `preset_theme_names` holds these names for a theme picker. Index 3 has no built-in look, so it equals the Emerald base until the host overrides it. `theme.selection` defaults to the accent and `theme.selection_text` to the background.
 
 | Field | List layout | Window layout |
 | --- | --- | --- |
@@ -150,7 +163,7 @@ A host that only overrides `background` therefore sees no change in the List bod
 
 ### Menu controls
 
-The demo exposes **Settings > Menu controls** in both layouts. The game adapter adds **Menu controls** to the root of the last registered tab (or the root page when there are no tabs). Click the current binding, then press the new keyboard key when it shows **Press a key...**. Select **Apply** to confirm. **Escape** or **Stop recording** cancels recording without changing that binding; Escape is reserved for cancellation while recording. Keys already held when recording starts are ignored until released and pressed again. Recording stops if the panel loses focus. Bindings are single keys, not modifier combinations. **Cancel** leaves existing keys unchanged; **Reset defaults** changes the draft and still requires Apply. Conflicting assignments are rejected, including conflicts with the menu open key.
+The demo exposes **Settings > Menu controls** in both layouts. The game adapter shows **Menu controls** on the shared Settings tab, below Input. Click the current binding, then press the new keyboard key when it shows **Press a key...**. Select **Apply** to confirm. **Escape** or **Stop recording** cancels recording without changing that binding; Escape is reserved for cancellation while recording. Keys already held when recording starts are ignored until released and pressed again. Recording stops if the panel loses focus. Bindings are single keys, not modifier combinations. **Cancel** leaves existing keys unchanged; **Reset defaults** changes the draft and still requires Apply. Conflicting assignments are rejected, including conflicts with the menu open key.
 
 | Action | Reset default |
 | --- | --- |
