@@ -86,6 +86,8 @@ namespace big
         static bool captures_game_input() { return captures_game_mouse() || captures_game_keyboard(); }
         // Call first in the game's window procedure; a value means return it instead of passing the message on.
         static std::optional<LRESULT> block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+        // Call before ImGui::NewFrame; ImGui draws its cursor and reads the mouse only while the menu uses it.
+        static void prepare_imgui_mouse();
 		static void draw_line(float x1, float y1, float x2, float y2, Color color, float thickness) { instance().draw_line_impl(x1, y1, x2, y2, color, thickness); }
 		static void draw_stroke_text(float x, float y, Color color, std::string_view str) { instance().draw_stroke_text_impl(x, y, color, str); }
 		static void draw_filled_rect(float x, float y, float w, float h, Color color) { instance().draw_filled_rect_impl(x, y, w, h, color); }

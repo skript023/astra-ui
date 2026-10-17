@@ -262,6 +262,16 @@ namespace big
         return held ? std::optional<LRESULT>(DefWindowProcW(hwnd, msg, wparam, lparam)) : std::nullopt;
     }
 
+    void canvas::prepare_imgui_mouse()
+    {
+        auto& io = ImGui::GetIO();
+        io.MouseDrawCursor = uses_mouse();
+        if (io.MouseDrawCursor)
+            io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+        else
+            io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+    }
+
 	void canvas::game_tick()
 	{
 		// if (m_opened)
