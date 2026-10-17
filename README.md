@@ -10,6 +10,7 @@ The Studio theme uses a light workspace, purple accents, a custom header, and th
 | --- | --- |
 | `astra::core` | Header-only page/control data, value validation, per-tab navigation |
 | `astra::ui` | ImGui widgets, theme scope, animated colors, List and Window views |
+| `astra::banners` | Optional built-in header banners as encoded images, in a fixed order |
 | `astra::win32` | Optional upstream ImGui Win32 input backend |
 | `astra::dx9` | Optional upstream ImGui DirectX 9 renderer |
 | `astra::dx11` | Optional upstream ImGui DirectX 11 renderer |
@@ -119,6 +120,16 @@ Engines also read input outside the window procedure. `canvas::captures_game_mou
 
 `block_game_message` replaces `captures_message(msg)`, which held the keyboard whenever ImGui held a widget and swallowed all raw input while the cursor was over the menu.
 
+## Banners
+
+Link `astra::banners` and include `<astra/banners.hpp>` to get the header banners every game menu offers. `astra::banners()` returns each banner's name and its encoded PNG or JPEG bytes; the host decodes and uploads them with its own renderer, the same way it owns every other texture.
+
+```cpp
+for (const auto& banner : astra::banners())
+    load_banner(std::string(banner.name), banner.image.data(), banner.image.size());
+```
+
+Hosts save the chosen banner as an index into this list, so the order in `assets/banners/banners.txt` is fixed and a new banner goes at the end. To add one, put the image in `assets/banners` and append a line with its file name and display name. The build turns the images into byte arrays (`cmake/embed_banners.cmake`), and only hosts that link `astra::banners` compile them.
 
 ## Theme colours
 

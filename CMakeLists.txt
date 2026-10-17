@@ -24,6 +24,27 @@ add_library(astra STATIC src/theme.cpp src/widgets.cpp src/window.cpp src/list.c
 add_library(astra::ui ALIAS astra)
 target_link_libraries(astra PUBLIC astra_core ${ASTRA_IMGUI_TARGET})
 
+# Header banners live in assets/banners as image files; only hosts that link astra::banners compile their bytes.
+set(ASTRA_BANNER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets/banners)
+file(STRINGS ${ASTRA_BANNER_DIR}/banners.txt ASTRA_BANNER_LINES)
+set(ASTRA_BANNER_FILES ${ASTRA_BANNER_DIR}/banners.txt)
+foreach(line IN LISTS ASTRA_BANNER_LINES)
+    if(line MATCHES "^([^ ]+) ")
+        list(APPEND ASTRA_BANNER_FILES ${ASTRA_BANNER_DIR}/${CMAKE_MATCH_1})
+    endif()
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ASTRA_BANNER_DIR}/banners.txt)
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/astra_banners.cpp
+    COMMAND ${CMAKE_COMMAND} -DASSETS=${ASTRA_BANNER_DIR} -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/astra_banners.cpp
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_banners.cmake
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_banners.cmake ${ASTRA_BANNER_FILES}
+    COMMENT "Embedding Astra header banners"
+    VERBATIM)
+add_library(astra_banners STATIC ${CMAKE_CURRENT_BINARY_DIR}/astra_banners.cpp)
+add_library(astra::banners ALIAS astra_banners)
+target_link_libraries(astra_banners PUBLIC astra_core)
+
 # Explicit opt-in: a host already compiling ImGui backends must not compile them twice.
 if(ASTRA_BACKENDS)
     if(NOT WIN32)
@@ -71,7 +92,7 @@ endif()
 if(ASTRA_BUILD_TESTS)
     enable_testing()
     add_executable(astra_tests tests/navigation.cpp)
-    target_link_libraries(astra_tests PRIVATE astra)
+    target_link_libraries(astra_tests PRIVATE astra astra_banners)
     add_test(NAME astra_regression COMMAND astra_tests)
 endif()
 

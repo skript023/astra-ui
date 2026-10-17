@@ -2,6 +2,7 @@
 #include <astra/options.hpp>
 #include <astra/navigation.hpp>
 #include <astra/key_settings.hpp>
+#include <astra/banners.hpp>
 #include "../src/widgets.hpp"
 #include <imgui_internal.h>
 #include <cmath>
@@ -552,8 +553,28 @@ static void theme_color_tests()
     }
     ImGui::DestroyContext();
 }
+static void banner_tests()
+{
+    // Hosts already saved these as indexes, so their order is fixed.
+    const char* saved[] = {"Quantum Green","Ellohim","Ellohim Green","Astra Standard","Ellohim Purple","Ellohim Cool",
+        "Quantum","Quantum Blue","Halloween 2024","UnknownCheats","Wuthering Wave"};
+    const auto list = astra::banners();
+    require(list.size() >= std::size(saved), "every saved banner index still exists");
+    for (std::size_t i = 0; i < std::size(saved); ++i)
+        require(list[i].name == saved[i], "saved banner indexes keep their banner");
+    for (std::size_t i = 0; i < list.size(); ++i)
+    {
+        const auto image = list[i].image;
+        const auto n = image.size();
+        const bool png = n > 16 && image[0] == 0x89 && image[1] == 'P' && image[n - 4] == 0xAE && image[n - 1] == 0x82;
+        const bool jpeg = n > 4 && image[0] == 0xFF && image[1] == 0xD8 && image[n - 2] == 0xFF && image[n - 1] == 0xD9;
+        require(png || jpeg, "banner embeds a whole PNG or JPEG");
+        for (std::size_t j = 0; j < i; ++j)
+            require(list[j].name != list[i].name, "banner names are unique");
+    }
+}
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); banner_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }
