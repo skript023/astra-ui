@@ -201,7 +201,7 @@ int main(int argc,char** argv)
                 checked(swapchain->ResizeBuffers(0,resize_width,resize_height,DXGI_FORMAT_UNKNOWN,0));
                 resize_width=resize_height=0; create_target();
             }
-            ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
+            ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame(); menu.keep_windows_out();
             // Custom keeps a host-editable palette; the library only reads what the host passes.
             const astra::theme colors=theme==3 ? custom_theme : astra::preset_theme(theme);
             // What a game host gives its own panels, the overlay, and notifications: the same palette, square like the List.

@@ -46,6 +46,14 @@ namespace astra
 
 	namespace detail
 	{
+		void keep_in_front()
+		{
+			ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+			for (const auto& popup : ImGui::GetCurrentContext()->OpenPopupStack)
+				if (popup.Window)
+					ImGui::BringWindowToDisplayFront(popup.Window);
+		}
+
 		void label_with_value(const char* label, const char* value_text)
 		{
 			const char* label_end = ImGui::FindRenderedTextEnd(label);

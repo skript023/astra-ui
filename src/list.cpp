@@ -1,4 +1,6 @@
 #include <astra/menu.hpp>
+#include "widgets.hpp"
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -31,6 +33,11 @@ namespace astra
 			ImGuiWindowFlags_NoBringToFrontOnFocus |
 			(settings.mouse_enabled ? 0 : ImGuiWindowFlags_NoMouseInputs));
 		ImGui::PopStyleVar(2);
+		// The List draws into its own window, kept in front, so the game's panels and overlay never cover it.
+		// The draw list takes the full screen: the footer and scrollbar sit outside the input window's rows.
+		detail::keep_in_front();
+		draw = ImGui::GetWindowDrawList();
+		draw->PushClipRectFullScreen();
 		auto& io = ImGui::GetIO();
 		auto hitbox = [&](const std::string& id, ImVec2 position, ImVec2 size, auto&& clicked) {
 			if (!input_visible || !settings.mouse_enabled || size.x <= 0 || size.y <= 0)
@@ -293,12 +300,12 @@ namespace astra
             const float panel_y = std::clamp(selected_row_y_, top, top + height - rh);
             const float panel_w = 300.f;
             const float panel_h = std::max(rh + 18.f, ImGui::CalcTextSize(model.controls[selected].description.c_str(), nullptr, false, panel_w - 28.f).y + 24.f);
-            // Game panels open in a column beside the List; the highlighted row's description stays above them.
-            auto* front = ImGui::GetForegroundDrawList();
-            front->AddRectFilled({panel_x, panel_y}, {panel_x + panel_w, panel_y + panel_h}, color(colors.panel));
+            // Behind the game's windows: a panel beside the List covers the card rather than the card covering the panel.
+            auto* card = ImGui::GetBackgroundDrawList();
+            card->AddRectFilled({panel_x, panel_y}, {panel_x + panel_w, panel_y + panel_h}, color(colors.panel));
             const float arrow_y = std::clamp(selected_row_y_ + rh * .5f, panel_y + 14.f, panel_y + panel_h - 14.f);
-            front->AddTriangleFilled({panel_x, arrow_y - 13.f}, {panel_x - 16.f, arrow_y}, {panel_x, arrow_y + 13.f}, color(colors.panel));
-            front->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {panel_x + 14, panel_y + 12}, color(colors.text), model.controls[selected].description.c_str(), nullptr, panel_w - 28.f);
+            card->AddTriangleFilled({panel_x, arrow_y - 13.f}, {panel_x - 16.f, arrow_y}, {panel_x, arrow_y + 13.f}, color(colors.panel));
+            card->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {panel_x + 14, panel_y + 12}, color(colors.text), model.controls[selected].description.c_str(), nullptr, panel_w - 28.f);
         }
         y = top + height;
         draw->AddRectFilled({x, y}, {x + width, y + 42.f}, color(colors.panel));
@@ -306,6 +313,12 @@ namespace astra
         if (tab_count)
             draw->AddLine({x, top}, {x + width, top}, color(colors.accent), 2.f);
         draw->AddLine({x, y}, {x + width, y}, color(colors.accent), 2.f);
+		draw->PopClipRect();
+		// The rows, the scrollbar beside them, and the footer; panels may sit over the description card beside them.
+		area_min_ = {x, settings.position.y};
+		area_max_ = {x + width + 12.f, y + 42.f};
+		area_frame_ = ImGui::GetFrameCount();
+		area_window_ = ImGui::GetCurrentWindow()->ID;
 		ImGui::End();
 		if (pending && result.kind == event_kind::option)
 			pending();

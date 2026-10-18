@@ -1,4 +1,5 @@
 #include "widgets.hpp"
+#include <imgui_internal.h>
 #include <astra/menu.hpp>
 #include <cctype>
 
@@ -105,6 +106,14 @@ event menu::draw_window(const char *id, const page &model, bool &open,
       id, &open, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
   ImGui::PopStyleVar();
+  // The game's panels and overlay never cover the menu.
+  detail::keep_in_front();
+  if (auto *window = ImGui::GetCurrentWindow()) {
+    area_min_ = window->Pos;
+    area_max_ = {window->Pos.x + window->Size.x, window->Pos.y + window->Size.y};
+    area_frame_ = ImGui::GetFrameCount();
+    area_window_ = window->ID;
+  }
   if (visible) {
     const auto origin = ImGui::GetWindowPos();
     const auto size = ImGui::GetWindowSize();

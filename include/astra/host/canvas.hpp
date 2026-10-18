@@ -90,6 +90,9 @@ namespace big
         static std::optional<LRESULT> block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
         // Call before ImGui::NewFrame; ImGui draws its cursor and reads the mouse only while the menu uses it.
         static void prepare_imgui_mouse();
+        // Call right after ImGui::NewFrame, before anything is drawn: a window the player drags onto the open menu
+        // stops at its edge instead of covering it.
+        static void keep_windows_off_menu() { instance().m_astra_canvas.keep_windows_out(); }
         // Call before ImGui::NewFrame; the game's own windows then take the menu's palette with the List's square
         // corners (astra::panel_theme).
         static void apply_panel_theme();

@@ -21,5 +21,6 @@ namespace astra
         }
 
         void reset_theme() { view_.reset_theme(); }
+        void keep_windows_out() { view_.keep_windows_out(); }
     };
 }

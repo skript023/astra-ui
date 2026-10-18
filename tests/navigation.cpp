@@ -488,14 +488,14 @@ static void list_mouse_tests()
     f.list.mouse_enabled = true;
     f.overlay = true;
     f.frame(); f.frame(); f.click({100,top + 12});
-    require(actions == before, "covering window blocks raw list clicks");
+    require(actions == before + 1, "a game window dragged over the List stays behind it, so the List still takes the click");
     f.overlay = false;
     f.list.banner = 1; f.list.banner_height = 130;
     f.list.position = {170,100}; f.list.row_height = 48; f.list.width = 300; f.list.rows = 3;
     f.page.id = "new-page"; f.page.tabs.clear(); f.page.controls = {action}; f.page.selected_option = 99;
     f.frame(); f.frame();
     f.click({190,100 + 130 + 24});
-    require(actions == before + 1 && f.event.index == 0, "banner and resized list use matching screen coordinates");
+    require(actions == before + 2 && f.event.index == 0, "banner and resized list use matching screen coordinates");
     f.page.controls.clear(); f.frame();
     io.AddMouseWheelEvent(0,-20); f.frame();
     require(f.event.kind == astra::event_kind::none, "empty list safely ignores wheel");
@@ -812,6 +812,103 @@ static void panel_component_tests()
     require(name == "ab" + typed, "a std::string field grows to hold what the player types");
     ImGui::DestroyContext();
 }
+static void menu_front_tests()
+{
+    ui_fixture f;
+    f.list_mode = true;
+    f.list.position = {40,40};
+    f.list.width = 300;
+    f.list.rows = 3;
+    astra::control action;
+    action.id = "action"; action.label = "Run";
+    f.page.controls = {action};
+    const auto display_index = [](const char* name) {
+        const auto& windows = GImGui->Windows;
+        for (int i = 0; i < windows.Size; ++i)
+            if (std::strstr(windows[i]->Name, name)) return i;
+        return -1;
+    };
+    bool open_popup = false;
+    const auto frame = [&] {
+        ImGui::NewFrame();
+        f.menu.draw_list(f.page, astra::preset_theme(0), f.list);
+        ImGui::SetNextWindowPos({120,80});
+        ImGui::SetNextWindowSize({300,200});
+        ImGui::Begin("Game panel");
+        if (open_popup) { ImGui::OpenPopup("choices"); open_popup = false; }
+        if (ImGui::BeginPopup("choices")) { ImGui::TextUnformatted("Choice"); ImGui::EndPopup(); }
+        ImGui::End();
+        ImGui::Render();
+    };
+    frame();
+    ImGui::FocusWindow(ImGui::FindWindowByName("Game panel"));
+    frame(); frame();
+    require(display_index("##astra_list_input_root") > display_index("Game panel"), "the List stays in front of a game panel the player clicked");
+    open_popup = true;
+    frame(); frame();
+    require(display_index("##Popup_") > display_index("##astra_list_input_root"), "a popup opened from a panel stays in front of the List");
+}
+static void menu_keep_out_tests()
+{
+    ui_fixture f;
+    f.list_mode = true;
+    f.list.position = {40,40};
+    f.list.width = 300;
+    f.list.rows = 3;
+    astra::control action;
+    action.id = "action"; action.label = "Run";
+    f.page.controls = {action};
+    // No banner: 60 for the header, 45 for the tabs, one row, then the 42 footer; the scrollbar sits 12 past the rows.
+    const ImRect list{{40.f,40.f}, {40.f + 300.f + 12.f, 40.f + 60.f + 45.f + 45.f + 42.f}};
+    bool menu_open = true;
+    const auto frame = [&] {
+        ImGui::NewFrame();
+        f.menu.keep_windows_out();
+        if (menu_open) f.menu.draw_list(f.page, astra::preset_theme(0), f.list);
+        ImGui::SetNextWindowPos({100,60}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({200,150}, ImGuiCond_FirstUseEver);
+        ImGui::Begin("Game panel");
+        ImGui::End();
+        ImGui::SetNextWindowPos({120,90});
+        ImGui::Begin("Censor", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMouseInputs);
+        ImGui::End();
+        ImGui::Render();
+    };
+    const auto panel_box = [] {
+        const auto* panel = ImGui::FindWindowByName("Game panel");
+        return ImRect{panel->Pos, {panel->Pos.x + panel->Size.x, panel->Pos.y + panel->Size.y}};
+    };
+    frame(); frame(); frame();
+    require(!panel_box().Overlaps(list), "a panel placed on the open List moves off it");
+    const auto* censor = ImGui::FindWindowByName("Censor");
+    require(censor->Pos.x == 120.f && censor->Pos.y == 90.f, "a window without a title bar or mouse input stays where the game put it");
+
+    auto& io = ImGui::GetIO();
+    const ImVec2 title{panel_box().Min.x + 30.f, panel_box().Min.y + 10.f};
+    io.AddMousePosEvent(title.x, title.y); frame();
+    io.AddMouseButtonEvent(0, true); frame();
+    io.AddMousePosEvent(150.f, 120.f); frame(); frame();
+    require(!panel_box().Overlaps(list) && panel_box().Min.x == title.x - 30.f + 20.f,
+        "a panel dragged onto the List follows the mouse along its edge but stops there");
+    io.AddMouseButtonEvent(0, false); frame();
+
+    // Pressed against the List's right edge and pulled up, the panel used to jump below the List.
+    const float right_edge = list.Max.x + 8.f;
+    ImGui::SetWindowPos("Game panel", {right_edge, 60.f});
+    frame(); frame();
+    io.AddMousePosEvent(right_edge + 30.f, 70.f); frame();
+    io.AddMouseButtonEvent(0, true); frame();
+    io.AddMousePosEvent(130.f, 120.f); frame(); frame();
+    require(panel_box().Min.x == right_edge && panel_box().Min.y == 110.f,
+        "a panel pushed deep into the List from its side stays on that side and still follows the mouse up and down");
+    io.AddMouseButtonEvent(0, false); frame();
+
+    menu_open = false;
+    frame();
+    ImGui::SetWindowPos("Game panel", {100,60});
+    frame(); frame();
+    require(panel_box().Min.x == 100.f && panel_box().Min.y == 60.f, "a closed menu keeps nothing out");
+}
 static void panel_theme_tests()
 {
     ImGui::CreateContext();
@@ -914,6 +1011,6 @@ static void template_tests()
 }
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); banner_tests(); hud_tests(); component_tests(); panel_component_tests(); panel_theme_tests(); notification_queue_tests(); template_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); banner_tests(); hud_tests(); component_tests(); panel_component_tests(); menu_front_tests(); menu_keep_out_tests(); panel_theme_tests(); notification_queue_tests(); template_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }
