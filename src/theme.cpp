@@ -40,7 +40,8 @@ namespace astra
 			t.panel = {1, 1, 1, 1};
 			t.field = {0.93f, 0.937f, 0.955f, 1};
 			t.text = {0.12f, 0.12f, 0.18f, 1};
-			t.muted = {0.46f, 0.48f, 0.55f, 1};
+			// Dark enough for AA as secondary text on the panel, window background, and field colours.
+			t.muted = {0.40f, 0.42f, 0.49f, 1};
 			t.accent = {0.259f, 0.165f, 0.835f, 1};
 			// A white highlight vanished against the white List rows.
 			t.selection = t.accent;
@@ -63,16 +64,28 @@ namespace astra
 	scoped_theme::scoped_theme(const theme& t) :
 	    saved_(ImGui::GetStyle())
 	{
+		apply_theme(t);
+	}
+	theme panel_theme(theme value)
+	{
+		value.rounding = 0.f;
+		return value;
+	}
+	void apply_theme(const theme& t)
+	{
 		auto& s = ImGui::GetStyle();
 		s.WindowPadding = {20, 20};
 		s.CellPadding = {6, 6};
 		s.FramePadding = {12, 8};
 		s.ItemSpacing = t.spacing;
+		// Controls round less than windows, and a square theme squares them too.
 		s.WindowRounding = t.rounding;
 		s.ChildRounding = t.rounding;
-		s.FrameRounding = 6;
-		s.GrabRounding = 6;
-		s.ScrollbarRounding = 8;
+		s.PopupRounding = std::min(6.f, t.rounding);
+		s.FrameRounding = std::min(6.f, t.rounding);
+		s.GrabRounding = std::min(6.f, t.rounding);
+		s.TabRounding = std::min(5.f, t.rounding);
+		s.ScrollbarRounding = std::min(8.f, t.rounding);
 		s.ScrollbarSize = 7;
 		s.FrameBorderSize = 0;
 		s.ChildBorderSize = 1;
@@ -98,13 +111,31 @@ namespace astra
 		c[ImGuiCol_SliderGrabActive] = t.accent;
 		c[ImGuiCol_TitleBg] = t.panel;
 		c[ImGuiCol_TitleBgActive] = t.panel;
+		c[ImGuiCol_TitleBgCollapsed] = t.panel;
+		c[ImGuiCol_MenuBarBg] = t.panel;
 		c[ImGuiCol_Separator] = c[ImGuiCol_Border];
+		c[ImGuiCol_SeparatorHovered] = c[ImGuiCol_FrameBgHovered];
+		c[ImGuiCol_SeparatorActive] = t.accent;
 		c[ImGuiCol_ResizeGrip] = c[ImGuiCol_FrameBgHovered];
 		c[ImGuiCol_ResizeGripHovered] = t.accent;
+		c[ImGuiCol_ResizeGripActive] = t.accent;
 		c[ImGuiCol_ScrollbarBg] = {0, 0, 0, 0};
 		c[ImGuiCol_ScrollbarGrab] = {t.muted.x, t.muted.y, t.muted.z, 0.25f};
 		c[ImGuiCol_ScrollbarGrabHovered] = {t.muted.x, t.muted.y, t.muted.z, 0.4f};
 		c[ImGuiCol_ScrollbarGrabActive] = t.accent;
+		c[ImGuiCol_Tab] = t.field;
+		c[ImGuiCol_TabHovered] = c[ImGuiCol_FrameBgHovered];
+		c[ImGuiCol_TabSelected] = c[ImGuiCol_FrameBgActive];
+		c[ImGuiCol_TabSelectedOverline] = t.accent;
+		c[ImGuiCol_TabDimmed] = t.field;
+		c[ImGuiCol_TabDimmedSelected] = c[ImGuiCol_FrameBgActive];
+		c[ImGuiCol_TableHeaderBg] = t.field;
+		c[ImGuiCol_TableBorderStrong] = c[ImGuiCol_Border];
+		c[ImGuiCol_TableBorderLight] = c[ImGuiCol_Border];
+		c[ImGuiCol_TableRowBgAlt] = {t.muted.x, t.muted.y, t.muted.z, 0.06f};
+		c[ImGuiCol_TextSelectedBg] = {t.accent.x, t.accent.y, t.accent.z, 0.35f};
+		c[ImGuiCol_PlotLines] = t.accent;
+		c[ImGuiCol_PlotHistogram] = t.accent;
 		if (srgb_output)
 			for (auto& color : c)
 				color = linearize(color);

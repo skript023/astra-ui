@@ -7,6 +7,7 @@
 #include <astra/host/menu/abstract_submenu.hpp>
 #include <astra/host/menu/tabs_menu.hpp>
 #include <astra/canvas.hpp>
+#include <astra/hud.hpp>
 #include <astra/navigation.hpp>
 #include <optional>
 #include <unordered_set>
@@ -52,6 +53,7 @@ namespace big
 		astra::navigation<abstract_submenu*> m_navigation;
 		astra::canvas m_astra_canvas;
         std::unordered_set<abstract_submenu*> m_window_prepared;
+        std::unordered_set<std::string> m_panels;
         astra::key_settings m_key_settings;
         bool m_wait_keys_release = false;
 
@@ -88,6 +90,30 @@ namespace big
         static std::optional<LRESULT> block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
         // Call before ImGui::NewFrame; ImGui draws its cursor and reads the mouse only while the menu uses it.
         static void prepare_imgui_mouse();
+        // Call before ImGui::NewFrame; the game's own windows then take the menu's palette with the List's square
+        // corners (astra::panel_theme).
+        static void apply_panel_theme();
+        // The menu's current palette, for a game panel that highlights text; the accent's alpha carries the menu transparency.
+        static astra::theme current_theme();
+        // Draw every frame, menu open or not; both use the menu's palette and transparency with square corners. draw_notifications draws
+        // what notification::info, success, and the rest have pushed.
+        static void draw_notifications();
+        static void draw_overlay(std::string_view title, std::span<const astra::overlay_row> rows);
+        // A details window, such as player info, in the layout every game shares; it opens in the panel column.
+        static void draw_info_window(const char* title, const astra::info_window& content);
+        // The card for what the player is looking at. It starts centred just below the crosshair and, like the overlay,
+        // takes input and shows its action buttons only while the menu is open. Returns the action clicked, or -1.
+        static int draw_inspector(const char* title, const astra::inspector& content);
+        // Call right before ImGui::Begin for a game panel. A panel with no saved position opens in a column right of
+        // the menu, under the panels already showing there; after that ImGui keeps where the player left it.
+        static void place_panel(const char* window_name) { ImGui::SetNextWindowPos(instance().panel_slot(window_name), ImGuiCond_FirstUseEver); }
+        // A game panel's window, placed the way place_panel does. The player can resize it, but not below
+        // options.min_size (by default the size it opens at). Call end_panel whatever it returns.
+        static bool begin_panel(const char* title, bool* open, const astra::panel_options& options = {})
+        {
+            return astra::begin_panel(title, open, instance().panel_slot(title), options);
+        }
+        static void end_panel() { astra::end_panel(); }
 		static void draw_line(float x1, float y1, float x2, float y2, Color color, float thickness) { instance().draw_line_impl(x1, y1, x2, y2, color, thickness); }
 		static void draw_stroke_text(float x, float y, Color color, std::string_view str) { instance().draw_stroke_text_impl(x, y, color, str); }
 		static void draw_filled_rect(float x, float y, float w, float h, Color color) { instance().draw_filled_rect_impl(x, y, w, h, color); }
@@ -168,6 +194,7 @@ namespace big
         static Vector2 platform_resolution();
         static void platform_prepare_render();
         void tick_impl();
+        ImVec2 panel_slot(const char* window_name);
         std::vector<astra::control> window_controls(abstract_submenu* sub,
             std::vector<std::uint32_t> ancestors);
 		void game_tick();

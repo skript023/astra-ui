@@ -3,11 +3,17 @@
 #include <astra/navigation.hpp>
 #include <astra/key_settings.hpp>
 #include <astra/banners.hpp>
+#include <astra/hud.hpp>
+#include <astra/components.hpp>
 #include "../src/widgets.hpp"
 #include <imgui_internal.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 static void require(bool ok, const char* what) { if (!ok) throw std::runtime_error(what); }
 static void navigation_tests()
@@ -556,6 +562,12 @@ static void theme_color_tests()
         require(astra::pack_color(preset.selection) != astra::pack_color(preset.panel), "List highlight differs from the List row colour");
         require(astra::pack_color(preset.selection_text) != astra::pack_color(preset.selection), "List highlight text differs from the highlight");
     }
+    const auto studio = astra::preset_theme(4);
+    astra::apply_theme(studio);
+    const auto& style = ImGui::GetStyle();
+    require(style.Colors[ImGuiCol_Button].x == studio.field.x && style.Colors[ImGuiCol_TitleBgCollapsed].x == studio.panel.x, "game panels take the menu theme");
+    { astra::scoped_theme menu_window(astra::preset_theme(0)); }
+    require(ImGui::GetStyle().Colors[ImGuiCol_Button].x == studio.field.x, "the Window layout's scoped theme leaves the panel theme in place");
     ImGui::DestroyContext();
 }
 static void banner_tests()
@@ -578,8 +590,330 @@ static void banner_tests()
             require(list[j].name != list[i].name, "banner names are unique");
     }
 }
+struct drawn_box { float left, top, right, bottom; };
+// Rectangles AddRectFilled painted in one colour, plus every vertex of another colour (text glyphs).
+static void collect_draw_data(ImU32 fill, ImU32 ink, std::vector<drawn_box>& boxes, std::vector<ImVec2>& glyphs)
+{
+    boxes.clear(); glyphs.clear();
+    const auto* data = ImGui::GetDrawData();
+    for (int i = 0; data && i < data->CmdListsCount; ++i)
+    {
+        const auto& vtx = data->CmdLists[i]->VtxBuffer;
+        for (int v = 0; v < vtx.Size; ++v)
+        {
+            if (vtx[v].col == ink) glyphs.push_back(vtx[v].pos);
+            if (vtx[v].col == fill && v + 3 < vtx.Size && vtx[v + 1].col == fill && vtx[v + 2].col == fill && vtx[v + 3].col == fill)
+            {
+                boxes.push_back({vtx[v].pos.x, vtx[v].pos.y, vtx[v + 2].pos.x, vtx[v + 2].pos.y});
+                v += 3;
+            }
+        }
+    }
+}
+static void hud_tests()
+{
+    ImGui::CreateContext();
+    auto& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = {1280,800};
+    io.DeltaTime = 1.f/60.f;
+    unsigned char* pixels; int w,h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
+    io.Fonts->SetTexID(1);
+    auto colors = astra::preset_theme(0);
+    colors.panel = {0.10f,0.20f,0.30f,1.f};
+    colors.field = {0.30f,0.20f,0.10f,1.f};
+    colors.text = {0.90f,0.80f,0.70f,1.f};
+    const ImU32 panel = astra::pack_color(colors.panel), ink = astra::pack_color(colors.text);
+    std::vector<drawn_box> boxes;
+    std::vector<ImVec2> glyphs;
+    auto frame = [&](auto&& draw) { ImGui::NewFrame(); draw(); ImGui::Render(); };
+
+    // Square corners keep each fill a plain quad, which collect_draw_data can find.
+    auto square = colors;
+    square.rounding = 0.f;
+    square.background = {0.20f,0.10f,0.30f,1.f};
+    const ImU32 window_fill = astra::pack_color(square.background);
+    std::vector<astra::toast> toasts = {
+        {"Ghost Mode", "On", {0.29f,0.69f,0.34f,1.f}},
+        {"Teleport failed", "The waypoint is outside the loaded world, so the player stays where they are until the area around the "
+            "marker finishes loading and the waypoint is set again.", {0.69f,0.29f,0.29f,1.f}},
+    };
+    std::vector<drawn_box> bars, bodies;
+    frame([&]{ astra::draw_notifications(toasts, square); });
+    collect_draw_data(window_fill, ink, bodies, glyphs);
+    collect_draw_data(panel, ink, bars, glyphs);
+    require(bars.size() == 2 && bodies.size() == 2, "each notification draws a title bar in the panel colour over a body in the window colour");
+    require(bars[0].right == 1270.f && bars[0].top == 10.f && bodies[0].top == bars[0].bottom,
+        "notifications start in the top-right corner with the message right under the title bar");
+    require(bars[1].top >= bodies[0].bottom + 10.f, "notification cards stack without overlapping");
+    require(bodies[1].bottom - bodies[1].top >= (bodies[0].bottom - bodies[0].top) + 3.f * ImGui::GetFontSize() - .5f,
+        "a long message grows its card by every wrapped line");
+    require(!glyphs.empty(), "notification text uses the theme text colour");
+    std::vector<drawn_box> cards;
+    for (std::size_t i = 0; i < bars.size(); ++i)
+        cards.push_back({bars[i].left, bars[i].top, bars[i].right, bodies[i].bottom});
+    for (const auto& g : glyphs)
+        require(std::any_of(cards.begin(), cards.end(), [&](const drawn_box& c) {
+            return g.x >= c.left + 11.f && g.x <= c.right - 11.f && g.y >= c.top + 7.f && g.y <= c.bottom - 7.f;
+        }), "notification text stays inside its card's padding");
+
+    auto studio = astra::preset_theme(4);
+    studio.rounding = 0.f;
+    const std::vector<astra::toast> info_toast = {{"Enable ESP", "On", astra::notice_color(astra::notice::info)}};
+    frame([&]{ astra::draw_notifications(info_toast, studio); });
+    // On a white title bar the pale info colour would be invisible; the dot is the one opaque colour that is not a fill or text.
+    ImU32 dot = 0;
+    const ImU32 known[] = {astra::pack_color(studio.panel), astra::pack_color(studio.background), astra::pack_color(studio.text)};
+    for (int i = 0; i < ImGui::GetDrawData()->CmdListsCount; ++i)
+        for (const auto& v : ImGui::GetDrawData()->CmdLists[i]->VtxBuffer)
+            if ((v.col >> IM_COL32_A_SHIFT) == 0xFF && std::find(std::begin(known), std::end(known), v.col) == std::end(known))
+                dot = v.col;
+    require(dot != 0 && astra::contrast_ratio(ImGui::ColorConvertU32ToFloat4(dot), studio.panel) >= 4.5f,
+        "the kind colour is shifted until it reads at AA on the title bar");
+
+    toasts.resize(1);
+    toasts[0].alpha = .5f;
+    frame([&]{ astra::draw_notifications(toasts, square); });
+    collect_draw_data(astra::pack_color({colors.panel.x, colors.panel.y, colors.panel.z, .5f}), ink, boxes, glyphs);
+    require(boxes.size() == 1 && glyphs.empty(), "an expiring notification fades its card and text");
+    toasts[0].alpha = 0.f;
+    frame([&]{ astra::draw_notifications(toasts, square); });
+    collect_draw_data(panel, ink, boxes, glyphs);
+    require(boxes.empty() && glyphs.empty(), "an expired notification draws nothing");
+
+    const astra::overlay_row rows[] = {{"Health", "250 / 250"}, {"Position", "-104.2, 31.5, 2210.9"}};
+    bool interactive = true;
+    auto overlay = [&]{ astra::draw_overlay("Player status", rows, colors, {18.f,18.f}, {0.f,0.f}, interactive); };
+    frame(overlay); frame(overlay);
+    const auto* window = ImGui::FindWindowByName("###astra_overlay");
+    require(window && window->Pos.x == 18.f && window->Pos.y == 18.f && window->Size.x >= 240.f, "the overlay opens at its start position with its minimum width");
+    collect_draw_data(panel, ink, boxes, glyphs);
+    require(!glyphs.empty(), "overlay values use the theme text colour");
+    for (const auto& g : glyphs)
+        require(g.x >= window->Pos.x && g.x <= window->Pos.x + window->Size.x && g.y >= window->Pos.y && g.y <= window->Pos.y + window->Size.y,
+            "overlay text stays inside its window");
+
+    io.AddMousePosEvent(40.f, 28.f); frame(overlay);
+    io.AddMouseButtonEvent(0, true); frame(overlay);
+    io.AddMousePosEvent(140.f, 128.f); frame(overlay);
+    io.AddMouseButtonEvent(0, false); frame(overlay);
+    require(window->Pos.x == 118.f && window->Pos.y == 118.f, "dragging the overlay moves it, and the start position no longer applies");
+
+    interactive = false;
+    io.AddMousePosEvent(150.f, 150.f); frame(overlay); frame(overlay);
+    require(!io.WantCaptureMouse, "with the menu closed the overlay takes no input");
+
+    astra::info_window info;
+    info.heading = "Player";
+    info.rows = {{"", "Online player"}, {"Health", ""}, {"Position", "-104.2, 31.5, 2210.9"}};
+    info.note = "Updates every second.";
+    auto details = [&]{ astra::draw_info_window("Player Info", info, colors, {300.f, 40.f}, {360.f, 390.f}); };
+    frame(details); frame(details);
+    const auto* info_window = ImGui::FindWindowByName("Player Info");
+    require(info_window && info_window->Pos.x == 300.f && info_window->Pos.y == 40.f && info_window->Size.x == 360.f && info_window->Size.y == 390.f,
+        "the info window opens at its start position and size");
+    collect_draw_data(panel, ink, boxes, glyphs);
+    require(!glyphs.empty(), "info window text uses the theme text colour");
+    for (const auto& g : glyphs)
+        require(g.x >= 300.f && g.x <= 660.f && g.y >= 40.f && g.y <= 430.f, "info window text stays inside its window");
+    ImGui::DestroyContext();
+}
+static void component_tests()
+{
+    ImGui::CreateContext();
+    auto& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = {1280,800};
+    io.DeltaTime = 1.f/60.f;
+    unsigned char* pixels; int w,h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
+    io.Fonts->SetTexID(1);
+    int count = 5;
+    bool changed = false;
+    ImVec2 track_min{}, track_max{};
+    auto frame = [&] {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0,0});
+        ImGui::SetNextWindowSize({320,200});
+        ImGui::Begin("Panel", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+        ImGui::SetNextItemWidth(200.f);
+        changed |= astra::slider("Count##spawn", &count, 1, 50);
+        track_min = ImGui::GetItemRectMin();
+        track_max = {track_min.x + 200.f, ImGui::GetItemRectMax().y};
+        ImGui::End();
+        ImGui::Render();
+    };
+    frame();
+    require(!changed && count == 5, "a slider leaves its value alone until dragged");
+    const ImVec2 right_end{track_max.x - 2.f, (track_min.y + track_max.y) * .5f};
+    io.AddMousePosEvent(right_end.x, right_end.y); frame();
+    io.AddMouseButtonEvent(0, true); frame();
+    io.AddMouseButtonEvent(0, false); frame();
+    require(changed && count == 50, "dragging a component slider to its end sets the maximum as a whole number");
+    ImGui::DestroyContext();
+}
+static void panel_component_tests()
+{
+    require(astra::matches_search("Iron Sword", "sWoRd"), "a search ignores letter case");
+    require(!astra::matches_search("Iron Sword", "axe"), "a search leaves out text without the query");
+    require(astra::matches_search("Iron Sword", ""), "an empty search matches everything");
+    ImGui::CreateContext();
+    auto& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = {1280,800};
+    io.DeltaTime = 1.f/60.f;
+    unsigned char* pixels; int w,h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
+    io.Fonts->SetTexID(1);
+    std::string name = "ab";
+    int picked = -1, snippet = 0, asked = 0;
+    bool open = false;
+    float choice_gap = -1.f;
+    ImVec2 field_min{}, field_max{};
+    std::vector<ImVec2> rows(3);
+    auto frame = [&] {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0,0});
+        ImGui::SetNextWindowSize({400,700});
+        ImGui::Begin("Panel", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+        astra::input_text("##name", &name);
+        field_min = ImGui::GetItemRectMin();
+        field_max = ImGui::GetItemRectMax();
+        const float before = ImGui::GetCursorScreenPos().y;
+        const std::string snippets[] = {"Hello", "Teleport"};
+        astra::choice("##snippet", &snippet, snippets);
+        choice_gap = ImGui::GetItemRectMin().y - before;
+        open = astra::section("Advanced", true);
+        const int hit = astra::match_list("matches", 3, [&](int i) {
+            rows[i] = ImGui::GetCursorScreenPos();
+            return astra::list_item{"Row " + std::to_string(i), picked == i};
+        }, {.height = 120.f});
+        if (hit >= 0) picked = hit;
+        astra::match_list("long", 10000, [&](int) { ++asked; return astra::list_item{"Item"}; }, {.height = 120.f, .count_label = nullptr});
+        ImGui::End();
+        ImGui::Render();
+    };
+    frame();
+    require(open, "a section opened by default starts open");
+    require(std::fabs(choice_gap) < .5f, "a choice whose label is only an ##id leaves out the line above the dropdown");
+    asked = 0;
+    frame();
+    require(asked > 0 && asked < 40, "a long list asks only for the rows on screen");
+    io.AddMousePosEvent(rows[1].x + 30.f, rows[1].y + 4.f); frame();
+    io.AddMouseButtonEvent(0, true); frame();
+    io.AddMouseButtonEvent(0, false); frame();
+    require(picked == 1, "clicking a list row returns its index");
+    io.AddMousePosEvent(field_max.x - 4.f, (field_min.y + field_max.y) * .5f); frame();
+    io.AddMouseButtonEvent(0, true); frame();
+    io.AddMouseButtonEvent(0, false); frame();
+    const std::string typed(40, 'x');
+    io.AddInputCharactersUTF8(typed.c_str()); frame();
+    require(name == "ab" + typed, "a std::string field grows to hold what the player types");
+    ImGui::DestroyContext();
+}
+static void panel_theme_tests()
+{
+    ImGui::CreateContext();
+    astra::apply_theme(astra::preset_theme(4));
+    const auto& style = ImGui::GetStyle();
+    require(style.WindowRounding == 16.f && style.FrameRounding == 6.f, "the menu theme keeps its rounded windows and controls");
+    astra::apply_theme(astra::panel_theme(astra::preset_theme(4)));
+    require(style.WindowRounding == 0.f && style.ChildRounding == 0.f && style.FrameRounding == 0.f && style.GrabRounding == 0.f
+        && style.ScrollbarRounding == 0.f && style.TabRounding == 0.f && style.PopupRounding == 0.f,
+        "the panel theme squares every corner, like the List layout");
+    ImGui::DestroyContext();
+}
+static void notification_queue_tests()
+{
+    using namespace std::chrono_literals;
+    astra::notification_queue queue;
+    const auto start = astra::notification_queue::clock::time_point{} + 1h;
+    queue.push(astra::notice::info, "Enable ESP", "On", "i", 3.f, start);
+    queue.push(astra::notice::success, "Teleport", "Teleported to spawn point.", {}, 3.f, start + 100ms);
+    auto cards = queue.cards(start + 1s);
+    require(cards.size() == 2 && cards[0].title == "Enable ESP" && cards[1].title == "Teleport", "cards keep the order they were pushed in");
+    require(cards[1].color.y == astra::notice_color(astra::notice::success).y && cards[0].alpha == 1.f && cards[0].icon == "i",
+        "a card takes its kind's colour and icon and shows fully at first");
+    queue.push(astra::notice::info, "Enable ESP", "Off", "i", 3.f, start + 3s);
+    cards = queue.cards(start + 3400ms);
+    require(cards.size() == 2 && cards[0].title == "Enable ESP" && cards[0].message == "Off" && cards[0].alpha == 1.f,
+        "a title still on screen keeps its card, which takes the new message in place and starts its time again");
+    require(std::fabs(cards[1].alpha - .5f) < .01f, "a card fades out over 0.6 s once its time is up");
+    cards = queue.cards(start + 3800ms);
+    require(cards.size() == 1 && cards[0].title == "Enable ESP", "a card that has faded out is dropped");
+}
+static void template_tests()
+{
+    ImGui::CreateContext();
+    auto& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = {1280,800};
+    io.DeltaTime = 1.f/60.f;
+    unsigned char* pixels; int w,h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
+    io.Fonts->SetTexID(1);
+    const char* actions[] = {"Teleport", "Delete"};
+    astra::row_action hit{};
+    std::vector<ImRect> last_button(3);
+    const std::vector<astra::log_entry> log = {
+        {"14:02:11", astra::log_level::info, "Script loaded"},
+        {"14:02:15", astra::log_level::warning, "Timer fired late"},
+        {"14:02:20", astra::log_level::error, "ReferenceError: horse is not defined"}};
+    astra::log_filter filter;
+    bool interactive = false;
+    const auto colors = astra::preset_theme(0);
+    const astra::inspector wolf{.name = "Wolf", .tag = "2 stars", .bar = .5f, .rows = {{"Health", "100 / 200"}}, .actions = {"Instant Tame"}};
+    auto frame = [&] {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0,0});
+        ImGui::SetNextWindowSize({460,780});
+        ImGui::Begin("Panel", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+        const auto clicked = astra::action_list("bookmarks", 3, [&](int i) {
+            // Called at the start of each row, so the last item is still the previous row's final button.
+            if (i > 0) last_button[i - 1] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+            return astra::action_row{"Place " + std::to_string(i), "X 1  Y 2"};
+        }, actions, {.height = 140.f});
+        if (clicked.row >= 0) hit = clicked;
+        astra::log_view("console", log, filter, 200.f);
+        ImGui::End();
+        astra::draw_inspector("Inspector", wolf, colors, {700,40}, {0,0}, interactive);
+        astra::begin_panel("Bookmarks panel", nullptr, {900,300}, {.size = {300,200}, .collapsible = false});
+        astra::end_panel();
+        ImGui::Render();
+    };
+    const auto log_height = [] {
+        for (auto* window : GImGui->Windows)
+            if (std::strstr(window->Name, "##log_entries")) return window->ContentSize.y;
+        return -1.f;
+    };
+    frame(); frame();
+    const auto target = last_button[1].GetCenter();
+    io.AddMousePosEvent(target.x, target.y); frame();
+    io.AddMouseButtonEvent(0, true); frame();
+    io.AddMouseButtonEvent(0, false); frame();
+    require(hit.row == 1 && hit.action == 1, "clicking a row's second button reports that row and action");
+    const float every_level = log_height();
+    filter.warning = filter.error = false;
+    frame(); frame();
+    const float info_only = log_height();
+    require(every_level > 0 && info_only > 0 && info_only < every_level, "turning off log levels hides their entries");
+    auto* card = ImGui::FindWindowByName("Inspector");
+    require(card && (card->Flags & ImGuiWindowFlags_NoInputs) && std::fabs(card->Size.x - 300.f) < .5f,
+        "an inspector outside the menu is a 300-wide card that takes no input");
+    interactive = true; frame();
+    require(!(ImGui::FindWindowByName("Inspector")->Flags & ImGuiWindowFlags_NoInputs), "an interactive inspector takes input");
+    auto* panel = ImGui::FindWindowByName("Bookmarks panel");
+    require(panel && panel->Pos.x == 900.f && panel->Pos.y == 300.f && panel->Size.x == 300.f && panel->Size.y == 200.f
+        && (panel->Flags & ImGuiWindowFlags_NoCollapse), "a panel opens where it is placed, at its size, and can be kept from collapsing");
+    ImGui::SetWindowSize("Bookmarks panel", {420.f, 260.f}); frame();
+    require(panel->Size.x == 420.f && panel->Size.y == 260.f, "the player can make a panel bigger");
+    ImGui::SetWindowSize("Bookmarks panel", {120.f, 80.f}); frame();
+    require(panel->Size.x == 300.f && panel->Size.y == 200.f, "a panel cannot be made smaller than the size it opens at");
+    ImGui::DestroyContext();
+}
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); banner_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); banner_tests(); hud_tests(); component_tests(); panel_component_tests(); panel_theme_tests(); notification_queue_tests(); template_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

@@ -1,4 +1,5 @@
 #include <astra/host/canvas.hpp>
+#include <astra/host/notification.hpp>
 #include <astra/host/menu/bool_option.hpp>
 #include <astra/host/menu/choose_option.hpp>
 #include <astra/host/menu/number_option.hpp>
@@ -20,6 +21,95 @@ namespace big
             static_cast<int>(settings.down_key), static_cast<int>(settings.left_key),
             static_cast<int>(settings.right_key), static_cast<int>(settings.left_tab_key),
             static_cast<int>(settings.right_tab_key)};
+    }
+
+    // The theme the menu, notifications, and overlay share: the chosen preset or Custom palette at the menu's transparency.
+    static astra::theme menu_theme()
+    {
+        auto theme = astra::preset_theme(g_settings.window.theme);
+        const float ui_alpha = std::clamp(g_settings.window.transparency, 0.15f, 1.f);
+        theme.background.w *= ui_alpha;
+        theme.panel.w *= ui_alpha;
+        theme.field.w *= ui_alpha;
+        theme.accent.w *= ui_alpha;
+        if (g_settings.window.theme == 3)
+        {
+            const auto& bg = g_settings.window.custom_background;
+            const auto& panel = g_settings.window.custom_panel;
+            const auto& text = g_settings.window.custom_text;
+            const auto& accent = g_settings.window.m_tab_selected_color;
+            theme.background = {bg.r / 255.f, bg.g / 255.f, bg.b / 255.f, ui_alpha};
+            theme.panel = {panel.r / 255.f, panel.g / 255.f, panel.b / 255.f, ui_alpha};
+            theme.field = theme.panel;
+            theme.text = {text.r / 255.f, text.g / 255.f, text.b / 255.f, 1.f};
+            theme.muted = {theme.text.x, theme.text.y, theme.text.z, .65f};
+            theme.accent = {accent.r / 255.f, accent.g / 255.f, accent.b / 255.f, ui_alpha};
+            // List paints selected rows and the active tab with selection/selection_text;
+            // preset_theme(3) only supplies defaults, so the custom accent must drive them.
+            theme.selection = theme.accent;
+            theme.selection_text = theme.background;
+        }
+        return theme;
+    }
+
+    void canvas::apply_panel_theme()
+    {
+        astra::apply_theme(astra::panel_theme(menu_theme()));
+    }
+
+    astra::theme canvas::current_theme()
+    {
+        return menu_theme();
+    }
+
+    void canvas::draw_notifications()
+    {
+        astra::draw_notifications(notification::queue().cards(), astra::panel_theme(menu_theme()));
+    }
+
+    void canvas::draw_overlay(std::string_view title, std::span<const astra::overlay_row> rows)
+    {
+        astra::draw_overlay(title, rows, astra::panel_theme(menu_theme()), instance().panel_slot("###astra_overlay"), {0.f, 0.f}, is_opened());
+    }
+
+    void canvas::draw_info_window(const char* title, const astra::info_window& content)
+    {
+        astra::draw_info_window(title, content, astra::panel_theme(menu_theme()), instance().panel_slot(title), {360.f, 390.f});
+    }
+
+    int canvas::draw_inspector(const char* title, const astra::inspector& content)
+    {
+        const auto* viewport = ImGui::GetMainViewport();
+        const ImVec2 below_crosshair{viewport->WorkPos.x + viewport->WorkSize.x * .5f, viewport->WorkPos.y + viewport->WorkSize.y * .58f};
+        return astra::draw_inspector(title, content, astra::panel_theme(menu_theme()), below_crosshair, {.5f, 0.f}, is_opened());
+    }
+
+    ImVec2 canvas::panel_slot(const char* window_name)
+    {
+        m_panels.emplace(window_name);
+        constexpr float gap = 20.f, stack_gap = 12.f, min_room = 200.f;
+        const auto& settings = g_settings.window;
+        // Level with the List's tabs, or with the top of the Window layout's window.
+        ImVec2 at{settings.m_pos.x + settings.m_width + gap, settings.m_pos.y + (g_gui.m_header ? m_header_height : 60.f)};
+        if (auto* menu = ImGui::FindWindowByName("###astra_menu"); menu && settings.layout == 1)
+            at = {menu->Pos.x + menu->Size.x + gap, menu->Pos.y};
+        const auto display = ImGui::GetIO().DisplaySize;
+        // Stack under the panels still showing in this column; a full column continues in the next one.
+        for (;;)
+        {
+            float bottom = at.y, right = at.x;
+            for (const auto& name : m_panels)
+            {
+                const auto* other = ImGui::FindWindowByName(name.c_str());
+                if (!other || !(other->Active || other->WasActive) || std::fabs(other->Pos.x - at.x) > 1.f)
+                    continue;
+                bottom = std::max(bottom, other->Pos.y + other->Size.y + stack_gap);
+                right = std::max(right, other->Pos.x + other->Size.x);
+            }
+            if (bottom + min_room <= display.y || right + gap + min_room >= display.x)
+                return {at.x, bottom};
+            at.x = right + gap;
+        }
     }
 
     std::vector<astra::control> canvas::window_controls(abstract_submenu* sub,
@@ -173,29 +263,7 @@ namespace big
             m_astra_canvas.reset_theme();
             last_palette = palette_key;
         }
-        auto theme = astra::preset_theme(g_settings.window.theme);
-        const float ui_alpha = std::clamp(g_settings.window.transparency, 0.15f, 1.f);
-        theme.background.w *= ui_alpha;
-        theme.panel.w *= ui_alpha;
-        theme.field.w *= ui_alpha;
-        theme.accent.w *= ui_alpha;
-        if (g_settings.window.theme == 3)
-        {
-            const auto& bg = g_settings.window.custom_background;
-            const auto& panel = g_settings.window.custom_panel;
-            const auto& text = g_settings.window.custom_text;
-            const auto& accent = g_settings.window.m_tab_selected_color;
-            theme.background = {bg.r / 255.f, bg.g / 255.f, bg.b / 255.f, ui_alpha};
-            theme.panel = {panel.r / 255.f, panel.g / 255.f, panel.b / 255.f, ui_alpha};
-            theme.field = theme.panel;
-            theme.text = {text.r / 255.f, text.g / 255.f, text.b / 255.f, 1.f};
-            theme.muted = {theme.text.x, theme.text.y, theme.text.z, .65f};
-            theme.accent = {accent.r / 255.f, accent.g / 255.f, accent.b / 255.f, ui_alpha};
-            // List paints selected rows and the active tab with selection/selection_text;
-            // preset_theme(3) only supplies defaults, so the custom accent must drive them.
-            theme.selection = theme.accent;
-            theme.selection_text = theme.background;
-        }
+        const auto theme = menu_theme();
         astra::list_style style;
         style.position = {g_settings.window.m_pos.x, g_settings.window.m_pos.y};
         style.width = g_settings.window.m_width;
