@@ -1,5 +1,6 @@
 #include <astra/key_settings.hpp>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 
 namespace astra {
@@ -124,7 +125,10 @@ std::optional<key_bindings> key_settings::draw(const theme& colors) {
     std::optional<key_bindings> result;
     ImGui::SetNextWindowSize({530, 640}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints({400, 360}, {FLT_MAX, FLT_MAX});
-    if (ImGui::Begin("Menu controls###astra_key_settings", &open_, ImGuiWindowFlags_NoCollapse)) {
+    const bool visible = ImGui::Begin("Menu controls###astra_key_settings", &open_, ImGuiWindowFlags_NoCollapse);
+    // Opened from the menu, so it stays in front of it.
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+    if (visible) {
         bool captured = false;
         if (recording()) {
             if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || ImGui::GetIO().AppFocusLost) {

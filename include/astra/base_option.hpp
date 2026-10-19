@@ -3,6 +3,7 @@
 #include <astra/host_option.hpp>
 #include <cstring>
 #include <functional>
+#include <string>
 #include <utility>
 
 namespace astra
@@ -11,9 +12,9 @@ namespace astra
     class base_option : public abstract_option
     {
     public:
-        const char* get_left_text() override { return m_left_text; }
+        const char* get_left_text() override { return m_left_text.c_str(); }
         const char* get_right_text() override { return m_right_text; }
-        const char* get_description() override { return m_description; }
+        const char* get_description() override { return m_description.c_str(); }
         int get_integer() override { return m_integer; }
         int get_min_integer() override { return m_min_integer; }
         int get_max_integer() override { return m_max_integer; }
@@ -26,9 +27,9 @@ namespace astra
                 m_action();
         }
         bool get_flag(option_flag) override { return false; }
-        Derived& set_left_text(const char* text) { copy(m_left_text, text); return derived(); }
+        Derived& set_left_text(const char* text) { m_left_text = text ? text : ""; return derived(); }
         Derived& set_right_text(const char* text) { copy(m_right_text, text); return derived(); }
-        Derived& set_description(const char* text) { copy(m_description, text); return derived(); }
+        Derived& set_description(const char* text) { m_description = text ? text : ""; return derived(); }
         Derived& set_integer(int value) { m_integer = value; return derived(); }
         Derived& set_min_integer(int value) { m_min_integer = value; return derived(); }
         Derived& set_max_integer(int value) { m_max_integer = value; return derived(); }
@@ -46,9 +47,10 @@ namespace astra
             target[sizeof(target) - 1] = '\0';
         }
         Derived& derived() { return static_cast<Derived&>(*this); }
-        char m_left_text[64]{};
+        std::string m_left_text;
+        // Number and choice options print their value into this buffer through MemoryStringStream.
         char m_right_text[64]{};
-        char m_description[64]{};
+        std::string m_description;
         int m_integer{};
         int m_min_integer{};
         int m_max_integer{};

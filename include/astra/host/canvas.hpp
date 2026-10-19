@@ -7,12 +7,16 @@
 #include <astra/host/menu/abstract_submenu.hpp>
 #include <astra/host/menu/tabs_menu.hpp>
 #include <astra/canvas.hpp>
+#include <astra/hud.hpp>
 #include <astra/navigation.hpp>
+#include <optional>
 #include <unordered_set>
 #include <astra/key_settings.hpp>
 
 namespace big
 {
+	class regular_submenu;
+
 	class Timer
 	{
 	public:
@@ -49,6 +53,7 @@ namespace big
 		astra::navigation<abstract_submenu*> m_navigation;
 		astra::canvas m_astra_canvas;
         std::unordered_set<abstract_submenu*> m_window_prepared;
+        std::unordered_set<std::string> m_panels;
         astra::key_settings m_key_settings;
         bool m_wait_keys_release = false;
 
@@ -66,15 +71,52 @@ namespace big
 		static void add_submenu(TArgs&&... args) { instance().add_submenu_impl<SubmenuType>(std::forward<TArgs>(args)...); }
 		template <typename TabmenuType, typename... Args>
 		static void add_tab(Args&&... args) { instance().add_tab_impl<TabmenuType>(std::forward<Args>(args)...); }
-
-
+		// The Settings tab every game shares, plus its Input delays submenu; game_options adds the game's own rows last.
+		static void add_settings_tab(std::uint32_t id, std::uint32_t input_id, std::function<void(regular_submenu*)> game_options = {})
+		{
+			instance().add_settings_tab_impl(id, input_id, std::move(game_options));
+		}
 
 		static void switch_to_submenu(std::uint32_t id) { instance().switch_to_submenu_impl(id); }
 		static void switch_to_tabmenu(std::uint32_t id) { instance().switch_to_tabmenu_impl(id); }
 		static bool is_opened() { return instance().m_opened; }
         static bool uses_mouse() { return is_opened() && instance().m_mouse_enabled.load(); }
-        static bool captures_game_input() { return is_opened() && instance().m_capture_game.load(); }
-        static bool captures_message(UINT msg);
+        // The cursor is over the menu, or a mouse button holds one of its widgets.
+        static bool captures_game_mouse() { return is_opened() && instance().m_capture_mouse.load(); }
+        // A menu text field is typing, or the key editor is open.
+        static bool captures_game_keyboard() { return is_opened() && instance().m_capture_keyboard.load(); }
+        static bool captures_game_input() { return captures_game_mouse() || captures_game_keyboard(); }
+        // Call first in the game's window procedure; a value means return it instead of passing the message on.
+        static std::optional<LRESULT> block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+        // Call before ImGui::NewFrame; ImGui draws its cursor and reads the mouse only while the menu uses it.
+        static void prepare_imgui_mouse();
+        // Call right after ImGui::NewFrame, before anything is drawn: a window the player drags onto the open menu
+        // stops at its edge instead of covering it.
+        static void keep_windows_off_menu() { instance().m_astra_canvas.keep_windows_out(); }
+        // Call before ImGui::NewFrame; the game's own windows then take the menu's palette with the List's square
+        // corners (astra::panel_theme).
+        static void apply_panel_theme();
+        // The menu's current palette, for a game panel that highlights text; the accent's alpha carries the menu transparency.
+        static astra::theme current_theme();
+        // Draw every frame, menu open or not; both use the menu's palette and transparency with square corners. draw_notifications draws
+        // what notification::info, success, and the rest have pushed.
+        static void draw_notifications();
+        static void draw_overlay(std::string_view title, std::span<const astra::overlay_row> rows);
+        // A details window, such as player info, in the layout every game shares; it opens in the panel column.
+        static void draw_info_window(const char* title, const astra::info_window& content);
+        // The card for what the player is looking at. It starts centred just below the crosshair and, like the overlay,
+        // takes input and shows its action buttons only while the menu is open. Returns the action clicked, or -1.
+        static int draw_inspector(const char* title, const astra::inspector& content);
+        // Call right before ImGui::Begin for a game panel. A panel with no saved position opens in a column right of
+        // the menu, under the panels already showing there; after that ImGui keeps where the player left it.
+        static void place_panel(const char* window_name) { ImGui::SetNextWindowPos(instance().panel_slot(window_name), ImGuiCond_FirstUseEver); }
+        // A game panel's window, placed the way place_panel does. The player can resize it, but not below
+        // options.min_size (by default the size it opens at). Call end_panel whatever it returns.
+        static bool begin_panel(const char* title, bool* open, const astra::panel_options& options = {})
+        {
+            return astra::begin_panel(title, open, instance().panel_slot(title), options);
+        }
+        static void end_panel() { astra::end_panel(); }
 		static void draw_line(float x1, float y1, float x2, float y2, Color color, float thickness) { instance().draw_line_impl(x1, y1, x2, y2, color, thickness); }
 		static void draw_stroke_text(float x, float y, Color color, std::string_view str) { instance().draw_stroke_text_impl(x, y, color, str); }
 		static void draw_filled_rect(float x, float y, float w, float h, Color color) { instance().draw_filled_rect_impl(x, y, w, h, color); }
@@ -117,6 +159,8 @@ namespace big
 			m_navigation.add_tab(m_all_tabs.back().get());
 		}
 
+		void add_settings_tab_impl(std::uint32_t id, std::uint32_t input_id, std::function<void(regular_submenu*)> game_options);
+
 		void switch_to_submenu_impl(std::uint32_t id)
 		{
 			for (auto&& sub : m_all_submenu)
@@ -153,6 +197,7 @@ namespace big
         static Vector2 platform_resolution();
         static void platform_prepare_render();
         void tick_impl();
+        ImVec2 panel_slot(const char* window_name);
         std::vector<astra::control> window_controls(abstract_submenu* sub,
             std::vector<std::uint32_t> ancestors);
 		void game_tick();
@@ -175,7 +220,8 @@ namespace big
 
 		std::atomic_bool m_opened{true};
         std::atomic_bool m_mouse_enabled{false};
-        std::atomic_bool m_capture_game{false};
+        std::atomic_bool m_capture_mouse{false};
+        std::atomic_bool m_capture_keyboard{false};
 
         float m_header_height = 100.f;
         float m_option_height = 45.f;
