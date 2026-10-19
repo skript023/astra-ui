@@ -175,6 +175,27 @@ info.note = "Updates every second.";
 canvas::draw_info_window("Player Info", info);
 ```
 
+## Feature settings and hotkeys
+
+`<astra/host/settings.hpp>` and `<astra/host/state_serializer.hpp>` hold settings.json in the mod folder, the file the Astra loader edits. Each `state_serializer` is one top-level object of the file, such as the game's feature states or its hotkeys, and constructing one registers it, so a static instance loads with everything else. The game supplies the components; Valheim calls its feature states `commands` and RDR2 calls them `features`, and the loader's profile for each game names which.
+
+The loader can change the file while the game runs, and the mod applies the change without a restart:
+
+| Step | Call | Thread |
+| --- | --- | --- |
+| Load every component, then stamp `"astra": {"live_reload": 1, "pid": <process id>}` | `settings::initialize(file)` | start-up |
+| Save dirty components, and read keys that differ from what the mod last read or wrote | `settings::tick()` | any, once a second |
+| Hand those keys to their components | `settings::apply_external()` | the one that switches features, once a frame |
+| Switch features from their keys | `hotkeys::tick(game_window)` | the same one, once a frame |
+
+The stamp tells the loader that its edits apply live, so it keeps the feature panel editable while the game runs. Only keys that changed on disk count as outside edits, so an in-game change that is not saved yet survives, and a component with edits still waiting is not saved over them. The file is written to a temporary file and renamed, so neither side ever reads half a file.
+
+A component's `apply_external_impl(state, changes)` receives the whole component and the changed keys, with null for a removed key; by default it reloads the component. A game's command list overrides it to call `set_state` on a bool command, so the feature switches on or off exactly as a menu click does.
+
+`<astra/host/hotkeys.hpp>` reads the `hotkeys` object, `{"<command name>": <virtual-key code>}`. A key press switches that bool command and shows an info card with the command's label and On or Off. It switches through `set_state` rather than `call`, because RDR2 runs `call` later on its script thread and the card must show the new state. Keys count only while the game window is in front, ImGui is not taking text, and Alt is up, so typing in a menu field and Alt+Tab never switch a feature. The hotkey does not stop the key from reaching the game.
+
+host/settings.cpp and host/hotkeys.cpp go in the game's sources next to host/canvas.cpp. They use the game's `file_manager/file.hpp`, `commands/commands.hpp`, `commands/bool_command.hpp` with `commands::get_bool_command`, and `utility/joaat.hpp`.
+
 ## Components
 
 `<astra/components.hpp>` holds the controls for a game's own panels, so every panel in every game looks alike. The Window layout draws its dropdowns, checkboxes, and buttons with the same code; its sliders keep the menu's thin track, while panels get a framed slider.
@@ -326,7 +347,7 @@ The demo exposes **Settings > Menu controls** in both layouts. The game adapter 
 
 The panel pauses menu hotkeys and list input while editing, enables mouse input even for a keyboard-only list, and temporarily enables ImGui keyboard navigation. Existing controller bindings are unchanged. The List renderer and its appearance are unchanged.
 
-The adapter updates the existing nine `g_settings.window.*_key` fields after Apply. Saving these fields across launches remains the host's settings serializer's responsibility; that serializer is not included in this repository. Demo changes last for the current run. Standalone hosts can include `astra/key_settings.hpp`, call `open(current_keys)`, then commit the optional value returned by `draw(theme)`. Values use Windows virtual-key codes. Custom submenu implementations outside `base_submenu` must implement `add_ui_option` to accept the adapter's controls entry.
+The adapter updates the existing nine `g_settings.window.*_key` fields after Apply. Saving these fields across launches remains the job of the game's own menu_settings.json code (`g_settings`), which is not part of this repository and is separate from the feature settings in host/settings.cpp. Demo changes last for the current run. Standalone hosts can include `astra/key_settings.hpp`, call `open(current_keys)`, then commit the optional value returned by `draw(theme)`. Values use Windows virtual-key codes. Custom submenu implementations outside `base_submenu` must implement `add_ui_option` to accept the adapter's controls entry.
 
 From a Visual Studio Developer PowerShell:
 
