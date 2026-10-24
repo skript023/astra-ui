@@ -100,22 +100,15 @@ namespace astra
 						double(model.selected_tab) + steps, 0.0, double(tab_count - 1)))};
 			}
 			const auto vis = std::min<std::size_t>(3, tab_count);
-			if (tab_count > vis)
-			{
-				if (model.selected_tab < tab_start_)
-					tab_start_ = model.selected_tab;
-				if (model.selected_tab >= tab_start_ + vis)
-					tab_start_ = model.selected_tab - vis + 1;
-				tab_start_ = std::min(tab_start_, tab_count - vis);
-			}
-			else
-				tab_start_ = 0;
+			// The selected tab sits in the middle while another tab follows it, so the next tab always shows beside it
+			// and a player sees there are more than three: Self | Mission | World becomes Mission | World | ESP on World.
+			const auto tab_start = std::min(model.selected_tab ? model.selected_tab - 1 : 0, tab_count - vis);
 			tab_widths_.resize(vis, width / 3);
 			const float base = width / 3, selw = base * 1.4f, norm = (width - selw) / 2;
 			float tx = x;
 			for (std::size_t s = 0; s < vis; s++)
 			{
-				auto i = tab_start_ + s;
+				auto i = tab_start + s;
 				bool a = i == model.selected_tab;
 				tab_widths_[s] += ((a ? selw : norm) - tab_widths_[s]) * .15f;
 				hitbox("tab_" + std::to_string(i), {tx - x, y - settings.position.y}, {tab_widths_[s], 45}, [&] {

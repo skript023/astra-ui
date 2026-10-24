@@ -465,6 +465,9 @@ static void list_mouse_tests()
     io.AddMousePosEvent(900,700); f.frame();
     io.AddMouseWheelEvent(0,-4); f.frame();
     require(f.page.selected_option == previous && f.page.selected_tab == 2, "outside wheel leaves menu untouched");
+    f.frame(); f.frame();
+    f.click({83 + 420 - 5,67 + 75});
+    require(f.page.selected_tab == 3, "the tab after the selected one shows beside it");
     f.list.rows = 1; f.list.row_height = 24;
     f.frame(); f.frame();
     io.AddMousePosEvent(83 + 420 + 10,top + 18); f.frame();

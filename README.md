@@ -80,7 +80,7 @@ const auto event = canvas.draw(
     "My menu###stable_menu_id", page, open, astra::preset_theme(4));
 ```
 
-Call `canvas.draw(astra::layout::list, id, page, open, theme, list_style)` for the raw-drawn List view. Both layouts consume the same model through the shared `astra::canvas` facade. The host routes keyboard input to navigation and option bindings.
+Call `canvas.draw(astra::layout::list, id, page, open, theme, list_style)` for the raw-drawn List view. Both layouts consume the same model through the shared `astra::canvas` facade. The host routes keyboard input to navigation and option bindings. The List shows three tabs at a time with the selected tab in the middle, so the next tab always shows beside it: with Self, Mission, World, and ESP, selecting World shows Mission, World, and ESP. Only the first and last tabs sit at the edge.
 
 List mouse input uses transparent hitboxes aligned with the existing drawing. Moving the cursor onto a row selects it without activating it; a cursor that rests on the list leaves keyboard selection alone, and a dragged slider keeps its own row selected. Click rows to activate actions/toggles; click the displayed number/choice arrows to decrement or increment; drag a toggle-number slider without changing its checkbox. Numeric arrows use `step`; slider dragging is continuous and rounds integral values. Wheel over rows scrolls the list, wheel over tabs changes tabs, and the scrollbar supports track clicks and dragging. Right-click inside a submenu to go back. Set `list_style::mouse_enabled=false` to disable mouse capture and interaction.
 
