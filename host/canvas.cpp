@@ -277,7 +277,7 @@ namespace big
         astra::event event = m_astra_canvas.draw(
             g_settings.window.layout == 1 ? astra::layout::window : astra::layout::list,
             GAME_NAME "###astra_menu", page, open, theme, style);
-        m_opened = open;
+        set_opened(open);
         switch (event.kind)
         {
         case astra::event_kind::tab: m_navigation.select_tab(event.index); break;
@@ -330,14 +330,32 @@ namespace big
         return held ? std::optional<LRESULT>(DefWindowProcW(hwnd, msg, wparam, lparam)) : std::nullopt;
     }
 
+    void canvas::set_opened(bool open)
+    {
+        if (open == m_opened)
+            return;
+        // While the menu is closed the hidden cursor keeps moving with mouse look, so it would come back wherever
+        // that left it. It is moved before m_opened is set, while a host's SetCursorPos hook still lets calls through.
+        const bool mouse = m_key_settings.active() || g_settings.window.layout == 1 || g_settings.window.mouse_active;
+        if (POINT cursor{}; !open && uses_mouse() && GetCursorPos(&cursor))
+            m_menu_cursor = cursor;
+        else if (open && mouse && m_menu_cursor)
+            SetCursorPos(m_menu_cursor->x, m_menu_cursor->y);
+        m_opened = open;
+    }
+
     void canvas::prepare_imgui_mouse()
     {
         auto& io = ImGui::GetIO();
         io.MouseDrawCursor = uses_mouse();
+        // A closed menu also leaves the OS cursor to the game. ImGui's Win32 backend would otherwise set an arrow on
+        // the first frame without its own cursor and on every WM_SETCURSOR, and a game that sets its cursor only when
+        // its own state changes, such as Ready or Not, keeps that arrow on screen.
+        constexpr auto mouse_flags = ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange;
         if (io.MouseDrawCursor)
-            io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+            io.ConfigFlags &= ~mouse_flags;
         else
-            io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+            io.ConfigFlags |= mouse_flags;
     }
 
 	void canvas::game_tick()
@@ -381,7 +399,7 @@ namespace big
 		openTimer.SetDelay(std::chrono::milliseconds(g_settings.window.m_open_delay));
 		if (m_open_key_pressed && openTimer.Update())
 		{
-			m_opened = !m_opened;
+			set_opened(!m_opened);
 
 			if (g_settings.window.m_sounds)
 				play_sound(m_opened ? "SELECT" : "BACK");

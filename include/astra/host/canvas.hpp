@@ -229,6 +229,11 @@ namespace big
 		void check_for_input_impl();
 		void handle_input_impl();
 	private:
+		// Opens or closes the menu, keeping the menu's cursor where the player left it.
+		void set_opened(bool open);
+		// Where the cursor was when the menu last stopped using the mouse.
+		std::optional<POINT> m_menu_cursor;
+
 		bool m_open_key_pressed = false;
 		bool m_open_was_down = false;
 		bool m_back_key_pressed = false;
