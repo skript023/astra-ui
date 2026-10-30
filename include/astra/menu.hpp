@@ -26,7 +26,6 @@ namespace astra
 		theme displayed_theme_{};
 		bool theme_initialized_ = false;
 		std::vector<float> tab_widths_;
-		std::size_t tab_start_ = 0;
 		float selected_row_y_ = 0.f;
 		std::string list_page_;
 		std::size_t list_start_ = 0;

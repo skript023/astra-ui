@@ -80,7 +80,7 @@ const auto event = canvas.draw(
     "My menu###stable_menu_id", page, open, astra::preset_theme(4));
 ```
 
-Call `canvas.draw(astra::layout::list, id, page, open, theme, list_style)` for the raw-drawn List view. Both layouts consume the same model through the shared `astra::canvas` facade. The host routes keyboard input to navigation and option bindings.
+Call `canvas.draw(astra::layout::list, id, page, open, theme, list_style)` for the raw-drawn List view. Both layouts consume the same model through the shared `astra::canvas` facade. The host routes keyboard input to navigation and option bindings. The List shows three tabs at a time with the selected tab in the middle, so the next tab always shows beside it: with Self, Mission, World, and ESP, selecting World shows Mission, World, and ESP. Only the first and last tabs sit at the edge.
 
 List mouse input uses transparent hitboxes aligned with the existing drawing. Moving the cursor onto a row selects it without activating it; a cursor that rests on the list leaves keyboard selection alone, and a dragged slider keeps its own row selected. Click rows to activate actions/toggles; click the displayed number/choice arrows to decrement or increment; drag a toggle-number slider without changing its checkbox. Numeric arrows use `step`; slider dragging is continuous and rounds integral values. Wheel over rows scrolls the list, wheel over tabs changes tabs, and the scrollbar supports track clicks and dragging. Right-click inside a submenu to go back. Set `list_style::mouse_enabled=false` to disable mouse capture and interaction.
 
@@ -118,7 +118,7 @@ While the cursor is over the menu, or a mouse button holds one of its widgets, t
 
 Engines also read input outside the window procedure. `canvas::captures_game_mouse()`, `captures_game_keyboard()`, and `captures_game_input()` (either one) report the same state for those hooks. The Valheim host, for example, stops mouse look in `PlayerController.TakeInput` on `captures_game_input()`, stops movement on `captures_game_keyboard()`, and drops attack and block in `Player.SetControls` on `captures_game_mouse()`. The RDR2 host disables the attack, aim, and weapon switch control actions on `captures_game_mouse()` and every control action on `captures_game_keyboard()`, once per script tick.
 
-Call `canvas::prepare_imgui_mouse()` before `ImGui::NewFrame`. ImGui then draws its cursor and reads the mouse only while the menu is open and uses the mouse (Window layout, Draw Mouse, or the key editor), so a closed menu never leaves a cursor on screen and the Window layout stays clickable without Draw Mouse. A host that hooks `SetCursorPos` should block it while `canvas::uses_mouse()`, so the game cannot pull the cursor back to the centre. Unity also confines the cursor with `ClipCursor`; the Valheim host releases that clip under the same condition.
+Call `canvas::prepare_imgui_mouse()` before `ImGui::NewFrame`. ImGui then draws its cursor and reads the mouse only while the menu is open and uses the mouse (Window layout, Draw Mouse, or the key editor), so a closed menu never leaves a cursor on screen and the Window layout stays clickable without Draw Mouse. While the menu does not use the mouse, ImGui also leaves the OS cursor to the game (`ImGuiConfigFlags_NoMouseCursorChange`). The menu's cursor reopens where the player left it, since the hidden cursor keeps moving with mouse look while the menu is closed; the canvas moves it back before the menu counts as open, so a host's `SetCursorPos` hook still lets that call through. A host that hooks `SetCursorPos` should block it while `canvas::uses_mouse()`, so the game cannot pull the cursor back to the centre. Unity also confines the cursor with `ClipCursor`; the Valheim host releases that clip under the same condition.
 
 `block_game_message` replaces `captures_message(msg)`, which held the keyboard whenever ImGui held a widget and swallowed all raw input while the cursor was over the menu.
 
@@ -145,6 +145,8 @@ canvas::add_settings_tab(SubmenuSettings, SubmenuSettingsInput, [](regular_subme
 ```
 
 The tab holds Menu Layout, Theme, Banner, Transparency, the Custom theme colours, Input (the navigation delays, registered as a submenu under the second id), Menu controls, List position and width, and Draw Mouse, followed by the callback's rows. Banner appears once the host has filled `g_gui.m_banner_names`, and picking one calls `g_gui.update_banner()`.
+
+These rows edit `canvas::config()`, a `menu_config` from `<astra/host/menu_config.hpp>`, and the canvas saves it as the `menu` object of settings.json (see below), so a game keeps no menu settings of its own. Read and change it from the render thread; the canvas compares it with the saved copy a few times a second and marks the component dirty, and the next `settings::tick()` writes it. A value missing from the file keeps its default. Session-only state, such as whether a game's own text prompt is showing, stays out of it: such a prompt calls `canvas::hold_mouse(true)` while it shows, and the menu keeps the mouse and keyboard as if Draw Mouse were on. host/canvas.cpp therefore needs host/settings.cpp in the game's sources.
 
 ## Notifications and overlay
 
@@ -347,7 +349,7 @@ The demo exposes **Settings > Menu controls** in both layouts. The game adapter 
 
 The panel pauses menu hotkeys and list input while editing, enables mouse input even for a keyboard-only list, and temporarily enables ImGui keyboard navigation. Existing controller bindings are unchanged. The List renderer and its appearance are unchanged.
 
-The adapter updates the existing nine `g_settings.window.*_key` fields after Apply. Saving these fields across launches remains the job of the game's own menu_settings.json code (`g_settings`), which is not part of this repository and is separate from the feature settings in host/settings.cpp. Demo changes last for the current run. Standalone hosts can include `astra/key_settings.hpp`, call `open(current_keys)`, then commit the optional value returned by `draw(theme)`. Values use Windows virtual-key codes. Custom submenu implementations outside `base_submenu` must implement `add_ui_option` to accept the adapter's controls entry.
+The adapter writes `canvas::config().keys` after Apply, and the canvas saves them with the rest of the menu settings in the `menu` object of settings.json, as `"keys": {"open": 45, "back": 96, ...}`. Demo changes last for the current run. Standalone hosts can include `astra/key_settings.hpp`, call `open(current_keys)`, then commit the optional value returned by `draw(theme)`. Values use Windows virtual-key codes. Custom submenu implementations outside `base_submenu` must implement `add_ui_option` to accept the adapter's controls entry.
 
 From a Visual Studio Developer PowerShell:
 
