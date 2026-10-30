@@ -6,6 +6,8 @@
 
 #include <astra/host/menu/abstract_submenu.hpp>
 #include <astra/host/menu/tabs_menu.hpp>
+#include <astra/host/menu_config.hpp>
+#include <astra/host/state_serializer.hpp>
 #include <astra/canvas.hpp>
 #include <astra/hud.hpp>
 #include <astra/navigation.hpp>
@@ -47,7 +49,8 @@ namespace big
 		std::chrono::high_resolution_clock::duration m_Delay;
 	};
 
-	class canvas
+	// Also the "menu" object of settings.json: canvas::config() is saved whenever it changes.
+	class canvas : private state_serializer
 	{
 		std::vector<std::unique_ptr<abstract_submenu>> m_all_tabs;
 		astra::navigation<abstract_submenu*> m_navigation;
@@ -80,11 +83,16 @@ namespace big
 		static void switch_to_submenu(std::uint32_t id) { instance().switch_to_submenu_impl(id); }
 		static void switch_to_tabmenu(std::uint32_t id) { instance().switch_to_tabmenu_impl(id); }
 		static bool is_opened() { return instance().m_opened; }
-        static bool uses_mouse() { return is_opened() && instance().m_mouse_enabled.load(); }
+        // The menu's saved settings. Change them from the render thread; the change is saved within a second.
+        static menu_config& config() { return instance().m_config; }
+        // A host prompt, such as a text box, keeps the menu's mouse and keyboard while it shows, whatever the
+        // player chose for Draw Mouse.
+        static void hold_mouse(bool held) { instance().m_mouse_held = held; }
+        static bool uses_mouse() { return (is_opened() && instance().m_mouse_enabled.load()) || instance().m_mouse_held.load(); }
         // The cursor is over the menu, or a mouse button holds one of its widgets.
-        static bool captures_game_mouse() { return is_opened() && instance().m_capture_mouse.load(); }
+        static bool captures_game_mouse() { return uses_mouse() && instance().m_capture_mouse.load(); }
         // A menu text field is typing, or the key editor is open.
-        static bool captures_game_keyboard() { return is_opened() && instance().m_capture_keyboard.load(); }
+        static bool captures_game_keyboard() { return uses_mouse() && instance().m_capture_keyboard.load(); }
         static bool captures_game_input() { return captures_game_mouse() || captures_game_keyboard(); }
         // Call first in the game's window procedure; a value means return it instead of passing the message on.
         static std::optional<LRESULT> block_game_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -101,6 +109,7 @@ namespace big
         // Draw every frame, menu open or not; both use the menu's palette and transparency with square corners. draw_notifications draws
         // what notification::info, success, and the rest have pushed.
         static void draw_notifications();
+        static void draw_input();
         static void draw_overlay(std::string_view title, std::span<const astra::overlay_row> rows);
         // A details window, such as player info, in the layout every game shares; it opens in the panel column.
         static void draw_info_window(const char* title, const astra::info_window& content);
@@ -131,7 +140,7 @@ namespace big
 		static void draw_cube(ImVec2 const& screen_location, float yaw, ImVec2 const& size, Color colour) { instance().draw_cube_impl(screen_location, yaw, size, colour); }
 		static ImVec2 rotate_point_2d(const ImVec2& point, const ImVec2& center, float yaw) { return instance().rotate_point_2d_impl(point, center, yaw); }
 	private:
-		explicit canvas() = default;
+		explicit canvas();
 		~canvas() noexcept = default;
 
 		canvas(canvas const&) = delete;
@@ -231,6 +240,20 @@ namespace big
 	private:
 		// Opens or closes the menu, keeping the menu's cursor where the player left it.
 		void set_opened(bool open);
+		// The key editor is open, the Window layout is on, or the player or a host prompt asked for the mouse.
+		bool wants_mouse() const;
+
+		menu_config m_config;
+		std::atomic_bool m_mouse_held{false};
+		// m_config as last loaded or seen by track_config_changes. Saving writes this copy, so it never reads m_config
+		// while the render thread changes it.
+		nlohmann::json m_saved_config;
+		std::mutex m_config_mutex;
+		std::chrono::steady_clock::time_point m_next_config_check{};
+		// Menu options write m_config through pointers, so a change shows up only by comparing it with the saved copy.
+		void track_config_changes();
+		void save_state_impl(nlohmann::json& state) override;
+		void load_state_impl(nlohmann::json& state) override;
 		// Where the cursor was when the menu last stopped using the mouse.
 		std::optional<POINT> m_menu_cursor;
 
