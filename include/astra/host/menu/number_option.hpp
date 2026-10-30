@@ -35,7 +35,10 @@ namespace big
 		{
 			if (!m_command)
 			{
-				LOG(FATAL) << "Command " << id << " not found.";
+				LOG(WARNING) << "Command " << id << " not found; disabling menu option.";
+
+				Base::set_left_text("<missing command>");
+				Base::set_action([] {});
 
 				return;
 			}
@@ -73,7 +76,7 @@ namespace big
 					<< m_command->get_state()
 					<< m_suffix;
 			}
-			else
+			else if (m_number)
 			{
 				stream
 					<< std::setprecision(m_precision)
@@ -113,7 +116,7 @@ namespace big
 						std::invoke(Base::m_action);
 				}
 			}
-			else
+			else if (m_number)
 			{
 				if (action == OptionAction::LeftPress)
 				{

@@ -24,6 +24,8 @@ namespace astra
         std::function<void(double)> set_value;
         std::function<void(int)> set_choice;
         std::function<void()> draw_details;
+        // Window-only inline submenu contents; list navigation still uses activate.
+        std::function<std::vector<control>()> children;
     };
     inline double bounded_value(double value, double minimum, double maximum, bool integral)
     {

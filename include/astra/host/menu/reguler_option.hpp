@@ -20,6 +20,15 @@ namespace big
 		explicit reguler_option(uint32_t cmd): 
 			m_command(commands::get_command<bool_command>(cmd))
 		{
+			if (!m_command)
+			{
+				// get_command() returns nullptr when the hash is not registered in this build.
+				// Dereferencing it here crashed the menu the moment the submenu was opened.
+				set_left_text("<missing command>");
+				set_action([] {});
+				return;
+			}
+
 			auto& text = m_command->get_label();
 			auto& description = m_command->get_description();
 
@@ -35,6 +44,6 @@ namespace big
 		reguler_option(reguler_option&&) = default;
 		reguler_option& operator=(reguler_option&&) = default;
 
-		command* m_command;
+		command* m_command = nullptr;
 	};
 }

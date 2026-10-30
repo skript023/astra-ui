@@ -22,6 +22,17 @@ namespace big
 			m_bool(nullptr),
 			m_command(commands::get_command<bool_command>(id))
 		{
+			if (!m_command)
+			{
+				// get_command() returns nullptr when the hash is not registered in this build.
+				// Dereferencing it here crashed the menu as soon as the submenu was opened.
+				LOG(WARNING) << "Command " << id << " not found; disabling menu option.";
+
+				Base::set_left_text("<missing command>");
+				Base::set_action([] {});
+				return;
+			}
+
 			auto description = m_command->get_description().c_str();
 			auto text = m_command->get_label().c_str();
 
@@ -45,7 +56,7 @@ namespace big
 				{
 					m_command->set_state(!m_command->get_state());
 				}
-				else
+				else if (m_bool)
 				{
 					*m_bool = !*m_bool;
 				}

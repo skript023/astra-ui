@@ -35,7 +35,11 @@ namespace big
 		{
 			if (!m_bool_command || !m_float_command)
 			{
-				LOG(FATAL) << "Command " << id_bool << " or " << id_float << " not found.";
+				m_command_missing = true;
+				LOG(WARNING) << "Command " << id_bool << " or " << id_float << " not found; disabling menu option.";
+
+				Base::set_left_text("<missing command>");
+				Base::set_action([] {});
 
 				return;
 			}
@@ -78,11 +82,14 @@ namespace big
 
 		void handle_action(OptionAction action) override
 		{
+			if (m_command_missing)
+				return;
+
 			if (action == OptionAction::EnterPress)
 			{
 				if (m_bool_command)
 					m_bool_command->set_state(!m_bool_command->get_state());
-				else
+				else if (m_bool)
 					*m_bool = !*m_bool;
 				
 			}
@@ -101,7 +108,7 @@ namespace big
 					if (m_action_on_horizontal && Base::m_action)
 						std::invoke(Base::m_action);
 				}
-				else
+				else if (m_number)
 				{
 					if (*m_number - m_step < m_min)
 						*m_number = m_max;
@@ -124,7 +131,7 @@ namespace big
 					else
 						m_float_command->set_state(m_float_command->get_state() + m_step);
 				}
-				else
+				else if (m_number)
 				{
 					if (*m_number + m_step > m_max)
 						*m_number = m_min;
@@ -157,6 +164,9 @@ namespace big
             c.precision = static_cast<int>(m_precision);
             c.value_text = std::to_string(c.value);
             c.set_value = [this](double value) {
+				if (m_command_missing)
+					return;
+
                 auto next = static_cast<float>(astra::bounded_value(value, m_min, m_max, false));
                 if (m_float_command) m_float_command->set_state(next);
                 else if (m_number) *m_number = next;
@@ -175,6 +185,7 @@ namespace big
 		std::size_t m_precision{};
 		bool_command* m_bool_command{ nullptr };
 		float_command* m_float_command{ nullptr };
+		bool m_command_missing{};
 		using Base = base_option<bool_slider_float_option>;
 	};
 }

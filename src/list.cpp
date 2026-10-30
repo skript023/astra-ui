@@ -1,4 +1,6 @@
 #include <astra/menu.hpp>
+#include "widgets.hpp"
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -31,6 +33,11 @@ namespace astra
 			ImGuiWindowFlags_NoBringToFrontOnFocus |
 			(settings.mouse_enabled ? 0 : ImGuiWindowFlags_NoMouseInputs));
 		ImGui::PopStyleVar(2);
+		// The List draws into its own window, kept in front, so the game's panels and overlay never cover it.
+		// The draw list takes the full screen: the footer and scrollbar sit outside the input window's rows.
+		detail::keep_in_front();
+		draw = ImGui::GetWindowDrawList();
+		draw->PushClipRectFullScreen();
 		auto& io = ImGui::GetIO();
 		auto hitbox = [&](const std::string& id, ImVec2 position, ImVec2 size, auto&& clicked) {
 			if (!input_visible || !settings.mouse_enabled || size.x <= 0 || size.y <= 0)
@@ -79,7 +86,6 @@ namespace astra
 		else
 		{
 			row(model.title, "ASTRA", false, 60);
-			draw->AddLine({x, y - 1}, {x + width, y - 1}, color(colors.accent), 2);
 		}
 		const auto tab_count = model.tabs.size();
 		if (tab_count)
@@ -94,22 +100,15 @@ namespace astra
 						double(model.selected_tab) + steps, 0.0, double(tab_count - 1)))};
 			}
 			const auto vis = std::min<std::size_t>(3, tab_count);
-			if (tab_count > vis)
-			{
-				if (model.selected_tab < tab_start_)
-					tab_start_ = model.selected_tab;
-				if (model.selected_tab >= tab_start_ + vis)
-					tab_start_ = model.selected_tab - vis + 1;
-				tab_start_ = std::min(tab_start_, tab_count - vis);
-			}
-			else
-				tab_start_ = 0;
+			// The selected tab sits in the middle while another tab follows it, so the next tab always shows beside it
+			// and a player sees there are more than three: Self | Mission | World becomes Mission | World | ESP on World.
+			const auto tab_start = std::min(model.selected_tab ? model.selected_tab - 1 : 0, tab_count - vis);
 			tab_widths_.resize(vis, width / 3);
 			const float base = width / 3, selw = base * 1.4f, norm = (width - selw) / 2;
 			float tx = x;
 			for (std::size_t s = 0; s < vis; s++)
 			{
-				auto i = tab_start_ + s;
+				auto i = tab_start + s;
 				bool a = i == model.selected_tab;
 				tab_widths_[s] += ((a ? selw : norm) - tab_widths_[s]) * .15f;
 				hitbox("tab_" + std::to_string(i), {tx - x, y - settings.position.y}, {tab_widths_[s], 45}, [&] {
@@ -120,7 +119,6 @@ namespace astra
 				text(label, tx + (tab_widths_[s] - ImGui::CalcTextSize(label.c_str()).x) * .5f, y + 14, color(a ? colors.selection_text : colors.text));
 				tx += tab_widths_[s];
 			}
-			//draw->AddLine({x, y + 64}, {x + width, y + 64}, color(colors.accent), 2);
 			y += 45;
 		}
 		auto selected = total ? std::min(model.selected_option, total - 1) : 0;
@@ -249,6 +247,10 @@ namespace astra
 				hitbox(row_id + "/next", {right_edge - arrow, local_y}, {width - right_edge + arrow, rh}, [&] { step(1); });
 			}
 			else hitbox(row_id, {0, local_y}, {width, rh}, activate);
+			// Only a moving cursor takes the selection, so a cursor resting on the list never undoes keyboard navigation.
+			const bool cursor_moved = io.MouseDelta.x != 0.f || io.MouseDelta.y != 0.f;
+			if (!active && cursor_moved && result.kind == event_kind::none && !ImGui::IsAnyItemActive() && hovered({x, y}, {x + width, y + rh}))
+				select();
 			auto ink = color(active ? colors.selection_text : colors.text);
 			text(c.label, x + 14, y + (rh - ImGui::GetFontSize()) * .5f, ink);
 			if (!right.empty() && !toggle && !slider)
@@ -270,9 +272,13 @@ namespace astra
 			{
                 double mn = std::min(c.minimum, c.maximum), mx = std::max(c.minimum, c.maximum);
 				float q = mx > mn ? float(std::clamp((c.value - mn) / (mx - mn), 0.0, 1.0)) : 0, kn = l + (r - l) * q;
-				draw->AddRectFilled({l, y + rh * .5f - 2}, {r, y + rh * .5f + 2}, color(colors.muted), 2);
-				draw->AddRectFilled({l, y + rh * .5f - 2}, {kn, y + rh * .5f + 2}, color(colors.accent), 2);
-				draw->AddCircleFilled({kn, y + rh * .5f}, 6, color(colors.accent), 20);
+				// On the highlighted row the slider takes the highlight's text colour, like the checkbox, since the
+				// highlight is often the accent itself.
+				const auto track = active ? ImVec4{colors.selection_text.x, colors.selection_text.y, colors.selection_text.z, colors.selection_text.w * .35f} : colors.muted;
+				const auto fill = active ? colors.selection_text : colors.accent;
+				draw->AddRectFilled({l, y + rh * .5f - 2}, {r, y + rh * .5f + 2}, color(track), 2);
+				draw->AddRectFilled({l, y + rh * .5f - 2}, {kn, y + rh * .5f + 2}, color(fill), 2);
+				draw->AddCircleFilled({kn, y + rh * .5f}, 6, color(fill), 20);
 			}
 			y += rh;
 		}
@@ -287,14 +293,25 @@ namespace astra
             const float panel_y = std::clamp(selected_row_y_, top, top + height - rh);
             const float panel_w = 300.f;
             const float panel_h = std::max(rh + 18.f, ImGui::CalcTextSize(model.controls[selected].description.c_str(), nullptr, false, panel_w - 28.f).y + 24.f);
-            draw->AddRectFilled({panel_x, panel_y}, {panel_x + panel_w, panel_y + panel_h}, color(colors.panel));
+            // Behind the game's windows: a panel beside the List covers the card rather than the card covering the panel.
+            auto* card = ImGui::GetBackgroundDrawList();
+            card->AddRectFilled({panel_x, panel_y}, {panel_x + panel_w, panel_y + panel_h}, color(colors.panel));
             const float arrow_y = std::clamp(selected_row_y_ + rh * .5f, panel_y + 14.f, panel_y + panel_h - 14.f);
-            draw->AddTriangleFilled({panel_x, arrow_y - 13.f}, {panel_x - 16.f, arrow_y}, {panel_x, arrow_y + 13.f}, color(colors.panel));
-            draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {panel_x + 14, panel_y + 12}, color(colors.text), model.controls[selected].description.c_str(), nullptr, panel_w - 28.f);
+            card->AddTriangleFilled({panel_x, arrow_y - 13.f}, {panel_x - 16.f, arrow_y}, {panel_x, arrow_y + 13.f}, color(colors.panel));
+            card->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {panel_x + 14, panel_y + 12}, color(colors.text), model.controls[selected].description.c_str(), nullptr, panel_w - 28.f);
         }
-        y = top + height + 14.f;
+        y = top + height;
         draw->AddRectFilled({x, y}, {x + width, y + 42.f}, color(colors.panel));
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), {x + 14, y + 12}, color(colors.muted), settings.footer.c_str());
+        if (tab_count)
+            draw->AddLine({x, top}, {x + width, top}, color(colors.accent), 2.f);
+        draw->AddLine({x, y}, {x + width, y}, color(colors.accent), 2.f);
+		draw->PopClipRect();
+		// The rows, the scrollbar beside them, and the footer; panels may sit over the description card beside them.
+		area_min_ = {x, settings.position.y};
+		area_max_ = {x + width + 12.f, y + 42.f};
+		area_frame_ = ImGui::GetFrameCount();
+		area_window_ = ImGui::GetCurrentWindow()->ID;
 		ImGui::End();
 		if (pending && result.kind == event_kind::option)
 			pending();
