@@ -5,6 +5,8 @@
 #include <astra/banners.hpp>
 #include <astra/hud.hpp>
 #include <astra/components.hpp>
+#include <astra/base_option.hpp>
+#include <astra/host/menu/base_submenu.hpp>
 #include "../src/widgets.hpp"
 #include <imgui_internal.h>
 #include <algorithm>
@@ -613,6 +615,48 @@ static void collect_draw_data(ImU32 fill, ImU32 ink, std::vector<drawn_box>& box
         }
     }
 }
+struct status_option : astra::base_option<status_option> {};
+struct status_submenu : big::base_submenu<status_submenu> {};
+static void list_status_tests()
+{
+    status_submenu sub;
+    auto& added = sub.add_option<status_option>().set_left_text("Collect All Evidence").set_status(astra::status_kind::done);
+    const auto described = sub.get_option(0)->describe_ui();
+    require(&added == sub.get_option(0) && described.status == astra::status_kind::done && described.status_text.empty(),
+        "add_option returns the row, whose status reaches the List");
+    added.set_status(astra::status_kind::pending, "Belum");
+    require(sub.get_option(0)->describe_ui().status_text == "Belum", "a row's status can carry its own word");
+
+    ui_fixture f;
+    f.list_mode = true;
+    f.list.position = {83,67};
+    f.list.width = 420;
+    f.list.row_height = 36;
+    f.list.rows = 3;
+    astra::control plain; plain.id = "plain"; plain.label = "Report All";
+    astra::control action; action.id = "action"; action.label = "Collect All Evidence"; action.status = astra::status_kind::done;
+    astra::control toggle; toggle.id = "toggle"; toggle.label = "Alerts"; toggle.kind = astra::control_kind::toggle;
+    toggle.status = astra::status_kind::failed;
+    f.page.controls = {plain, action, toggle};
+    f.frame(); f.frame();
+    const auto colors = astra::preset_theme(0);
+    const auto badge = [&](astra::notice kind) {
+        return astra::pack_color(astra::detail::readable(astra::notice_color(kind), colors.text, colors.panel));
+    };
+    const float top = 67 + 60 + 45, right = 83 + 420 - 14;
+    std::vector<drawn_box> boxes;
+    std::vector<ImVec2> done, failed;
+    collect_draw_data(1, badge(astra::notice::success), boxes, done);
+    collect_draw_data(1, badge(astra::notice::error), boxes, failed);
+    require(!done.empty() && std::ranges::all_of(done, [&](ImVec2 p) { return p.y > top + 36 && p.y < top + 72 && p.x <= right + 1; }),
+        "a done row shows its badge inside the row, at the right");
+    require(!failed.empty() && std::ranges::all_of(failed, [&](ImVec2 p) { return p.x < 83 + 420 - 28; }),
+        "a toggle's badge stops before its checkbox");
+    f.page.selected_option = 1;
+    f.frame(); f.frame();
+    collect_draw_data(1, badge(astra::notice::success), boxes, done);
+    require(done.empty(), "the highlighted row's badge takes the highlight's text colour");
+}
 static void hud_tests()
 {
     ImGui::CreateContext();
@@ -1014,6 +1058,6 @@ static void template_tests()
 }
 int main()
 {
-    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); theme_color_tests(); banner_tests(); hud_tests(); component_tests(); panel_component_tests(); menu_front_tests(); menu_keep_out_tests(); panel_theme_tests(); notification_queue_tests(); template_tests(); std::puts("Astra regression tests passed"); return 0; }
+    try { navigation_tests(); option_binding_tests(); key_settings_tests(); key_settings_ui_tests(); interaction_tests(); window_hierarchy_tests(); list_mouse_tests(); list_status_tests(); theme_color_tests(); banner_tests(); hud_tests(); component_tests(); panel_component_tests(); menu_front_tests(); menu_keep_out_tests(); panel_theme_tests(); notification_queue_tests(); template_tests(); std::puts("Astra regression tests passed"); return 0; }
     catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

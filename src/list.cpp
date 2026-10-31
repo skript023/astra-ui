@@ -1,4 +1,5 @@
 #include <astra/menu.hpp>
+#include <astra/hud.hpp>
 #include "widgets.hpp"
 #include <imgui_internal.h>
 #include <algorithm>
@@ -7,6 +8,33 @@
 #include <sstream>
 namespace astra
 {
+	namespace
+	{
+		const char* status_word(status_kind kind)
+		{
+			switch (kind)
+			{
+			case status_kind::active: return "In progress";
+			case status_kind::done: return "Done";
+			case status_kind::failed: return "Failed";
+			default: return "Not yet";
+			}
+		}
+
+		// The notification colours, mixed toward the text until they read at WCAG AA on the List's rows.
+		ImVec4 status_color(status_kind kind, const theme& colors)
+		{
+			ImVec4 base = colors.muted;
+			if (kind == status_kind::active)
+				base = notice_color(notice::warning);
+			else if (kind == status_kind::done)
+				base = notice_color(notice::success);
+			else if (kind == status_kind::failed)
+				base = notice_color(notice::error);
+			return detail::readable(base, colors.text, colors.panel);
+		}
+	}
+
 	event menu::draw_list(const page& model, const theme& target, const list_style& settings)
 	{
 		const auto colors = animate_theme(target);
@@ -257,6 +285,26 @@ namespace astra
 			{
 				auto shown = (c.kind == control_kind::submenu) ? right : (std::string("< ") + right + " >");
 				text(shown, x + width - 14 - ImGui::CalcTextSize(shown.c_str()).x, y + (rh - ImGui::GetFontSize()) * .5f, ink);
+			}
+			if (c.status != status_kind::none)
+			{
+				// The badge ends where the row's own value, checkbox, or slider begins.
+				float edge = x + width - 14;
+				if (slider)
+					edge = l - 12;
+				else if (toggle)
+					edge = x + width - 40;
+				else if (!right.empty())
+					edge -= ImGui::CalcTextSize((c.kind == control_kind::submenu ? right : "< " + right + " >").c_str()).x + 12;
+				const char* word = c.status_text.empty() ? status_word(c.status) : c.status_text.c_str();
+				const float word_x = edge - ImGui::CalcTextSize(word).x, dot_x = word_x - 10, mid = y + rh * .5f;
+				// On the highlighted row the badge takes the highlight's text colour, like the checkbox and slider.
+				const auto mark = color(active ? colors.selection_text : status_color(c.status, colors));
+				if (c.status == status_kind::pending)
+					draw->AddCircle({dot_x, mid}, 4, mark, 16, 1.5f);
+				else
+					draw->AddCircleFilled({dot_x, mid}, 4, mark, 16);
+				text(word, word_x, y + (rh - ImGui::GetFontSize()) * .5f, mark);
 			}
 			if (toggle)
 			{

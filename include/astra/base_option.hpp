@@ -37,6 +37,20 @@ namespace astra
         Derived& set_min_float(float value) { m_min_float = value; return derived(); }
         Derived& set_max_float(float value) { m_max_float = value; return derived(); }
         Derived& set_action(std::function<void()> action) { m_action = std::move(action); return derived(); }
+        // The badge at the right of the row, such as done once an action has run; text replaces the kind's word.
+        Derived& set_status(status_kind kind, const char* text = nullptr)
+        {
+            m_status = kind;
+            m_status_text = text ? text : "";
+            return derived();
+        }
+        control describe_ui() override
+        {
+            auto c = abstract_option::describe_ui();
+            c.status = m_status;
+            c.status_text = m_status_text;
+            return c;
+        }
     protected:
         base_option() = default;
         ~base_option() override = default;
@@ -58,5 +72,7 @@ namespace astra
         float m_min_float{};
         float m_max_float{};
         std::function<void()> m_action;
+        status_kind m_status = status_kind::none;
+        std::string m_status_text;
     };
 }

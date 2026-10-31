@@ -10,10 +10,15 @@ namespace astra
 {
     enum class layout { list, window };
     enum class control_kind { action, submenu, toggle, number, toggle_number, choice };
+    // Whether what a row stands for has happened yet, such as an objective or a one-off action. The List shows it as
+    // a badge at the right of the row, before the row's own value; none shows nothing.
+    enum class status_kind { none, pending, active, done, failed };
     struct control
     {
         std::string id, label, description, value_text;
         control_kind kind = control_kind::action;
+        status_kind status = status_kind::none;
+        std::string status_text; // Replaces the badge's word: Not yet, In progress, Done, or Failed.
         bool checked = false;
         bool integral = false;
         double value = 0, minimum = 0, maximum = 1, step = 1;

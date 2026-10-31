@@ -59,10 +59,14 @@ namespace big
 			m_selected_option = n;
 		}
 
+		// Returns the new option, so the row can be set up further, such as with set_status.
 		template <typename OptionType, typename ...TArgs>
-		void add_option(TArgs&&... args)
+		OptionType& add_option(TArgs&&... args)
 		{
-			m_options.push_back(std::make_unique<OptionType>(std::forward<TArgs>(args)...));
+			auto option = std::make_unique<OptionType>(std::forward<TArgs>(args)...);
+			auto& added = *option;
+			m_options.push_back(std::move(option));
+			return added;
 		}
 
 

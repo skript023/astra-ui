@@ -267,6 +267,8 @@ int main(int argc,char** argv)
                 sub.activate=[&]{nav.push(3);};
                 auto& action=add("run","Run action",astra::control_kind::action);
                 action.description="Actions run once per click. Count: "+std::to_string(actions);
+                // Not yet until the action first runs, then Done.
+                action.status=actions ? astra::status_kind::done : astra::status_kind::pending;
                 action.activate=[&]{ ++actions; push_toast("Run action",std::format("Ran {} time{}.",actions,actions==1 ? "" : "s"),astra::notice::success); };
             }
             if (open && layout==0 && allow_keys)

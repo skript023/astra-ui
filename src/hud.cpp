@@ -1,5 +1,6 @@
 #include <astra/hud.hpp>
 #include <astra/components.hpp>
+#include "widgets.hpp"
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -19,8 +20,10 @@ namespace astra
 			const auto channel = [](float c) { return c <= .03928f ? c / 12.92f : std::pow((c + .055f) / 1.055f, 2.4f); };
 			return .2126f * channel(color.x) + .7152f * channel(color.y) + .0722f * channel(color.z);
 		}
+	}
 
-		// The kind colour, mixed toward the text colour in steps until it reads at WCAG AA on the background.
+	namespace detail
+	{
 		ImVec4 readable(ImVec4 color, ImVec4 text, ImVec4 background)
 		{
 			for (int step = 0; step <= 10; ++step)
@@ -55,7 +58,7 @@ namespace astra
 			const float alpha = std::clamp(item.alpha, 0.f, 1.f);
 			if (alpha <= 0.f)
 				continue;
-			const ImVec4 kind = readable(item.color, colors.text, colors.panel);
+			const ImVec4 kind = detail::readable(item.color, colors.text, colors.panel);
 			const float lead = (item.icon.empty() ? dot * 2.f : font->CalcTextSizeA(size, FLT_MAX, 0.f, item.icon.c_str()).x) + lead_gap;
 			// Heights come from the same wrapping AddText uses, so long text never spills out of the card.
 			const float bar_h  = font->CalcTextSizeA(size, FLT_MAX, wrap - lead, item.title.c_str()).y + bar_pad_y * 2.f;
