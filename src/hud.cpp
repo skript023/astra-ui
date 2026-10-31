@@ -217,10 +217,15 @@ namespace astra
 			}
 			if (interactive)
 			{
+				// A button that does not fit beside the last one starts a new row, so every action stays on the card.
+				const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+				const float padding = ImGui::GetStyle().FramePadding.x * 2.f;
+				const float spacing = ImGui::GetStyle().ItemSpacing.x;
 				for (int i = 0; i < static_cast<int>(content.actions.size()); ++i)
 				{
 					ImGui::PushID(i);
-					if (i > 0)
+					const float width = ImGui::CalcTextSize(content.actions[i].c_str()).x + padding;
+					if (i > 0 && ImGui::GetItemRectMax().x + spacing + width <= right)
 						ImGui::SameLine();
 					if (button(content.actions[i].c_str()))
 						clicked = i;
