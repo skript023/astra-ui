@@ -297,14 +297,9 @@ namespace astra
 				else if (!right.empty())
 					edge -= ImGui::CalcTextSize((c.kind == control_kind::submenu ? right : "< " + right + " >").c_str()).x + 12;
 				const char* word = c.status_text.empty() ? status_word(c.status) : c.status_text.c_str();
-				const float word_x = edge - ImGui::CalcTextSize(word).x, dot_x = word_x - 10, mid = y + rh * .5f;
 				// On the highlighted row the badge takes the highlight's text colour, like the checkbox and slider.
 				const auto mark = color(active ? colors.selection_text : status_color(c.status, colors));
-				if (c.status == status_kind::pending)
-					draw->AddCircle({dot_x, mid}, 4, mark, 16, 1.5f);
-				else
-					draw->AddCircleFilled({dot_x, mid}, 4, mark, 16);
-				text(word, word_x, y + (rh - ImGui::GetFontSize()) * .5f, mark);
+				text(word, edge - ImGui::CalcTextSize(word).x, y + (rh - ImGui::GetFontSize()) * .5f, mark);
 			}
 			if (toggle)
 			{
